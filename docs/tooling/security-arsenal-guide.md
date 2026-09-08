@@ -113,4 +113,4 @@ LlamaFirewall is still not inline: model download/license and AlignmentCheck pro
 - **Google Model Armor:** separate GCP procurement task covering account/project, API enablement, key/service-account custody, region/data retention, free-tier/overage ceiling, synthetic prompt smoke, and rollback. No key was created here.
 - **E2B:** separate procurement/privacy decision for hosted metered sandboxes, including account, API key, data residency, spend cap, egress policy, retention, and a containment denial test. No SDK/account was installed or created here.
 
-The authoritative installed versions and verification commands remain in `shared/api-catalog.md` §12. The guarded stack is wired for `claude` and `codex` only; Gemini and Kimi remain deferred.
+The authoritative installed versions and verification commands remain in `shared/api-catalog.md` §12. The guarded stack is wired for `claude` and `codex` only; Gemini, Grok, and Kimi remain deferred.

@@ -447,6 +447,7 @@ def receipt_path(receipt_dir: Path, mode: str) -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    snapshot_default = os.environ.get("VAULT_SNAPSHOT_DEST") or None
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--preserve", action="store_true", help="dry run (default)")
     modes.add_argument("--apply", action="store_true", help="remove planned items")
@@ -459,7 +460,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vault-snapshot-dir",
         type=Path,
-        default=Path(os.environ.get("VAULT_SNAPSHOT_DEST", Path.home() / "vault-snapshots")),
+        default=snapshot_default,
+        required=snapshot_default is None,
+        help="snapshot directory (required unless VAULT_SNAPSHOT_DEST is set)",
     )
     parser.add_argument(
         "--receipt-dir",

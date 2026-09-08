@@ -166,6 +166,17 @@ class CapabilityCardGeneratorTests(unittest.TestCase):
         self.assertEqual(checked.returncode, 1, checked.stdout + checked.stderr)
         self.assertIn(str(orphan), checked.stderr)
 
+    def test_private_lifetime_ratio_is_scrubbed(self) -> None:
+        source = CLEAN_CARD.replace(
+            "Ordinary transferable method prose",
+            "Ordinary transferable method prose (~7/13 lifetime)",
+        )
+
+        rendered = GENERATOR_MODULE.transform(source)
+
+        self.assertNotIn("7/13", rendered)
+        self.assertIn("Ordinary transferable method prose", rendered)
+
     def test_no_sources_fails_closed(self) -> None:
         """An empty source set must not report a clean, complete generation."""
         (self.root / "shared/capabilities/bounty").mkdir(parents=True)

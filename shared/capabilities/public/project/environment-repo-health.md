@@ -27,9 +27,9 @@ operator-gated.
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall); inventory precheck |
 | **S1** Frame (audit scope + cost) | `product-manager`, `mac-ops` | — | `scope-decomposition` | — |
-| **S2** Design (risk grouping + plan) | `architect`, `refactor-cleaner`, `agentops` | — | `refactor-scope-bounding`, `dependency-cycle-audit` | — |
-| **S3** Produce (upgrade / cleanup / refactor) | `refactor-cleaner`, `software-supply-chain-engineer`, `mac-ops` | `plugin:github:github`, `osv-scanner`, `gitleaks`, `trufflehog`, `trivy`, `semgrep` | `refactor-scope-bounding`, `known-advisory-backport-check` | `credential_change`; `cleanup`; `delete` |
-| **S4** Verify (regression + changelog) | `test-engineer`, `skeptic` | — | `rollback-test-coverage`, `regression-bisect-flow` | — |
+| **S2** Design (risk grouping + plan) | `architect`, `refactor-cleaner`, `agentops` | — | `dependency-cycle-audit` | — |
+| **S3** Produce (upgrade / cleanup / refactor) | `refactor-cleaner`, `software-supply-chain-engineer`, `mac-ops` | `plugin:github:github`, `osv-scanner`, `gitleaks`, `trufflehog`, `trivy`, `semgrep` | `known-advisory-backport-check` | `credential_change`; `cleanup`; `delete` |
+| **S4** Verify (regression + changelog) | `test-engineer`, `skeptic` | — | — | — |
 | **S5** Review/Gate (approval) | `code-reviewer`, `cross-family-reviewer`, `operator` | `codex review`, `claude --from-pr` | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer); `production_mutation`, `delete`, `cleanup`, `credential_change`, `public_release` |
 | **S6** Ship/Deliver (batch execute + changelog) | `mac-ops`, `agentops`, `technical-writer` | `plugin:github:github` | — | `production_mutation` (live-system mutation); `public_release` |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` | — | memory overlay (record) |

@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "tools/export"))
+
+import content_scan  # noqa: E402
 
 
 class ProductHygieneGateTests(unittest.TestCase):
@@ -149,6 +154,58 @@ class ProductHygieneGateTests(unittest.TestCase):
         result = self._gate()
         self.assertEqual(result.returncode, 1)
         self.assertIn("private-identifier", (self.reports / "gate.md").read_text())
+
+    def test_content_scan_reads_projected_candidate_not_private_worktree(self) -> None:
+        planted_secret = "".join(
+            ("aB3_cD4-", "eF5_gH6-", "iJ7_kL8-", "mN9_oP0")
+        )
+        self._track("README.md", f"access_token={planted_secret}\n")
+        # The index is the publication input. Replacing only the private
+        # working-tree copy recreates the historical wrong-root false clean.
+        (self.root / "README.md").write_text("# Clean private copy\n", encoding="utf-8")
+
+        result = self._gate()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        report = (self.reports / "gate.md").read_text(encoding="utf-8")
+        self.assertIn("Entropy/identifier status: 1", report)
+        self.assertIn("Scan scope: policy-projected tracked publication candidate", report)
+        self.assertIn('high-entropy-token path="README.md"', report)
+
+    def test_canonical_identifier_denylist_does_not_match_itself(self) -> None:
+        candidate = self.base / "content-candidate"
+        denylist_path = candidate / "tools/export/identifier-denylist.txt"
+        denylist_path.parent.mkdir(parents=True)
+        planted_secret = "".join(
+            ("aB3_cD4-", "eF5_gH6-", "iJ7_kL8-", "mN9_oP0")
+        )
+        denylist_path.write_text(
+            f"blocked-codeword\naccess_token={planted_secret}\n", encoding="utf-8"
+        )
+
+        findings = content_scan.scan(
+            candidate,
+            [content_scan.IDENTIFIER_DENYLIST_CANDIDATE_PATH],
+            [("blocked-codeword", re.compile("blocked-codeword", re.IGNORECASE))],
+            set(),
+            identifier_exempt_paths=frozenset(
+                {content_scan.IDENTIFIER_DENYLIST_CANDIDATE_PATH}
+            ),
+        )
+
+        self.assertEqual([finding.kind for finding in findings], ["high-entropy-token"])
+
+    def test_inline_gitleaks_suppression_is_forbidden_in_public_candidate(self) -> None:
+        directive = "gitleaks" + ":allow"
+        planted = "ghp_" + "PublicationGateRegressionSecret0123456789"
+        self._track("README.md", f"token={planted} # {directive}\n")
+
+        result = self._gate()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        report = (self.reports / "gate.md").read_text(encoding="utf-8")
+        self.assertIn("Entropy/identifier status: 1", report)
+        self.assertIn('inline-secret-suppression path="README.md"', report)
 
     def test_utf16_private_identifier_hit_fails_closed(self) -> None:
         (self.root / "README.md").write_bytes(

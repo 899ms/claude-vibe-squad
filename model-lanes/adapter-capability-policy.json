@@ -63,7 +63,7 @@
       "kind": "skills",
       "identifier": "citation-audit",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1300-u15",
+      "source_task": "TASK-2099-01-01-0001-example-retirement",
       "reason": "evidence-backed stale pointer retired from the capability source"
     },
     {
@@ -71,7 +71,7 @@
       "kind": "skills",
       "identifier": "claim-validation-gate",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -79,7 +79,7 @@
       "kind": "skills",
       "identifier": "a11y-audit",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by wcag-conformance-audit (wired)"
     },
     {
@@ -87,7 +87,7 @@
       "kind": "skills",
       "identifier": "cite-properly",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -95,7 +95,7 @@
       "kind": "skills",
       "identifier": "cite-properly",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -103,7 +103,7 @@
       "kind": "skills",
       "identifier": "cite-properly",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -111,7 +111,7 @@
       "kind": "skills",
       "identifier": "cite-properly",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -119,7 +119,7 @@
       "kind": "skills",
       "identifier": "cite-properly",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -127,7 +127,7 @@
       "kind": "skills",
       "identifier": "claim-validation-gate",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -135,7 +135,7 @@
       "kind": "skills",
       "identifier": "cite-properly",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -143,7 +143,7 @@
       "kind": "skills",
       "identifier": "cite-properly",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by claim-verification (wired)"
     },
     {
@@ -151,7 +151,7 @@
       "kind": "skills",
       "identifier": "chain-impact-rescore",
       "retired_on": "2026-08-29",
-      "source_task": "TASK-2026-08-29-1115-skillrefs",
+      "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by chain-construct (wired)"
     }
   ],

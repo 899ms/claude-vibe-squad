@@ -27,6 +27,7 @@ class PublishProvenanceTests(unittest.TestCase):
         self.root.mkdir()
         self.board = self.root / "_state/board-dispatch"
         self.board.mkdir(parents=True)
+        self.registry_path = self.root / "_state/active-tasks.json"
         self.git("init", "-q")
         self.git("config", "user.name", "Provenance Test")
         self.git("config", "user.email", "provenance@example.invalid")
@@ -93,6 +94,24 @@ class PublishProvenanceTests(unittest.TestCase):
             board_state=self.board,
         )
 
+    def registry(self, task: str, **overrides: object) -> None:
+        entry: dict[str, object] = {
+            "status": "complete",
+            "write_scope": ["scripts/python"],
+            "author_family": "openai",
+            "review_model": "claude",
+            "verdict": "APPROVE",
+            "review_settled_by": "chrono-explicit",
+            "cross_family_review_ref": (
+                f"departments/coding/outbox/{task}-review-response.md"
+            ),
+            "review_force_override": False,
+        }
+        entry.update(overrides)
+        self.registry_path.write_text(
+            json.dumps({task: entry}), encoding="utf-8"
+        )
+
     def test_reports_direct_protected_commit_with_paths_and_ready_dispatch(self) -> None:
         self.write("scripts/python/runtime.py", "value = 1\n")
         commit = self.commit("coordinator change")
@@ -108,8 +127,9 @@ class PublishProvenanceTests(unittest.TestCase):
         self.write("docs/note.md", "documentation\n")
         self.commit("docs only")
 
-        self.assertEqual(self.findings(), ())
-        self.assertEqual(format_publish_provenance(()), "")
+        report = self.findings()
+        self.assertEqual(report.protected_commit_count, 0)
+        self.assertEqual(format_publish_provenance(report), "")
 
     def test_fast_forward_integration_receipt_binds_without_trailers(self) -> None:
         path = "scripts/python/lane.py"
@@ -117,7 +137,9 @@ class PublishProvenanceTests(unittest.TestCase):
         commit = self.commit("lane-authored fast-forward")
         self.receipt(task="TASK-2099-01-01-0001-lane", commit=commit, paths=[path])
 
-        self.assertEqual(self.findings(), ())
+        report = self.findings()
+        self.assertEqual(len(report.integration_receipt_bound), 1)
+        self.assertEqual(report.unexplained, ())
 
     def test_merge_receipt_and_worker_trailers_bind(self) -> None:
         base = self.head()
@@ -149,7 +171,9 @@ class PublishProvenanceTests(unittest.TestCase):
             base_commit=base,
         )
 
-        self.assertEqual(self.findings(), ())
+        report = self.findings()
+        self.assertEqual(len(report.integration_receipt_bound), 1)
+        self.assertEqual(report.unexplained, ())
 
     def test_recovered_blocked_attempt_binds_and_path_mismatch_does_not(self) -> None:
         path = "tools/runtime/check.py"
@@ -157,13 +181,77 @@ class PublishProvenanceTests(unittest.TestCase):
         commit = self.commit("recovered worker change")
         task = "TASK-2099-01-01-0003-recovery"
         self.receipt(task=task, commit=commit, paths=[path], field="work_recovery")
-        self.assertEqual(self.findings(), ())
+        report = self.findings()
+        self.assertEqual(len(report.integration_receipt_bound), 1)
+        self.assertEqual(report.unexplained, ())
 
         receipt = next(self.board.glob("*.receipt.json"))
         payload = json.loads(receipt.read_text(encoding="utf-8"))
         payload["work_recovery"]["integrated_paths"] = ["docs/not-the-change.md"]
         receipt.write_text(json.dumps(payload), encoding="utf-8")
-        self.assertEqual([finding[0] for finding in self.findings()], [commit])
+        self.assertEqual(
+            [finding.commit for finding in self.findings().unexplained], [commit]
+        )
+
+    def test_cross_family_approved_task_binds_cherry_picked_commit(self) -> None:
+        task = "TASK-2099-01-01-0004-reviewed"
+        path = "scripts/python/reviewed.py"
+        self.write(path, "value = 4\n")
+        commit = self.commit(f"cherry-pick reviewed work for {task}")
+        self.registry(task, write_scope=[path])
+
+        report = self.findings()
+
+        self.assertEqual(report.unexplained, ())
+        self.assertEqual(len(report.cross_family_review_bound), 1)
+        self.assertEqual(report.cross_family_review_bound[0].commit, commit)
+        self.assertEqual(report.cross_family_review_bound[0].evidence, task)
+        rendered = format_publish_provenance(report)
+        self.assertIn("cross-family-review-bound: 1", rendered)
+        self.assertIn("unexplained: 0", rendered)
+
+    def test_same_family_or_forced_review_cannot_bind_commit(self) -> None:
+        task = "TASK-2099-01-01-0005-untrusted-review"
+        path = "scripts/python/untrusted.py"
+        self.write(path, "value = 5\n")
+        commit = self.commit(f"claimed reviewed work for {task}")
+
+        self.registry(task, write_scope=["docs"])
+        self.assertEqual(
+            [finding.commit for finding in self.findings().unexplained], [commit]
+        )
+
+        self.registry(task, write_scope=[path], review_model="gpt-codex")
+        self.assertEqual(
+            [finding.commit for finding in self.findings().unexplained], [commit]
+        )
+
+        self.registry(
+            task,
+            write_scope=[path],
+            review_model="claude",
+            review_force_override=True,
+        )
+        self.assertEqual(
+            [finding.commit for finding in self.findings().unexplained], [commit]
+        )
+
+    def test_coordinator_direct_reason_classifies_but_does_not_silence(self) -> None:
+        path = "tools/runtime/direct.py"
+        self.write(path, "value = 6\n")
+        commit = self.commit(
+            "emergency coordinator change",
+            body="Coordinator-Direct-Reason: board unavailable during settlement outage",
+        )
+
+        report = self.findings()
+        rendered = format_publish_provenance(report)
+
+        self.assertEqual(report.unexplained, ())
+        self.assertEqual(report.declared_coordinator_direct[0].commit, commit)
+        self.assertIn("declared-coordinator-direct: 1", rendered)
+        self.assertIn("board unavailable during settlement outage", rendered)
+        self.assertIn("dispatch:", rendered)
 
     def test_reads_latest_source_anchor_across_publish_records(self) -> None:
         ledger = self.root / "ledger.jsonl"

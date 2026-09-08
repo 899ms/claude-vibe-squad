@@ -13,7 +13,7 @@
 
 ![Vibe Squad — seven specialists running in parallel across two model families](assets/demo/phase3-swarm.gif)
 
-*Seven specialists live at once across Claude and Codex — each card its own model, profile, elapsed clock and scoped surface — while the coordinator repairs its own admission gate in the pane beside them.*
+*Seven specialists live at once across Claude and Codex — each card its own model, profile, elapsed clock and scoped surface — while the coordinator works in the pane beside them.*
 
 </div>
 
@@ -60,21 +60,35 @@ Then clone and launch:
 git clone https://github.com/mtarcure/claude-vibe-squad.git
 cd claude-vibe-squad
 uv sync                                # create the pinned Python 3.13 environment
-git config core.hooksPath .githooks    # opt in to the tracked pre-commit checks
+bash docs/install/install-pre-commit-hook.sh  # install the reviewed local leak guard
 bin/squad doctor
 bin/squad up
 ```
 
-That `core.hooksPath` line is the one step nothing does for you. Git only ever runs hooks from
-`.git/hooks/`, which no clone receives, so the tracked hook in `.githooks/` stays inert until you
-point git at it. Until you do, the specialist, format, and capability checks run on push in CI but
-not on your commits — and neither does the private-memory leak guard, which is the check you least
-want to discover after a push. It is per-clone local config; undo it with
-`git config --unset core.hooksPath`. See [the git hooks guide](docs/git-hooks.md).
+The installer copies the self-contained private-memory leak guard into Git's private hooks
+directory. It does not point `core.hooksPath` at tracked files, so checking out another branch
+cannot replace the code Git runs on your next commit. Repository-wide specialist, format, and
+capability validation remains in CI. If an older clone has `core.hooksPath=.githooks`, migrate it
+by running the installer. The installer clears the local value and refuses success if a global or
+system value still overrides the private hooks directory, reporting the origin that must be
+removed. See the [install guide](docs/install/README.md#5-install-the-local-leak-guard).
 
 That is the whole required path. There is **no background daemon to install first**. `bin/squad up` runs on a fresh clone, notices once that the optional launchd daemon is absent, and continues.
 
 **Optional: the launchd routines.** `bash bin/install-routines.sh --daemon-only` installs a background daemon; `bash bin/install-routines.sh` adds the optional routine agents too. The daemon buys exactly two things: the live `● daemon` segment in the tmux status bar, and the documented `POST /mcp/<server>/<tool>` HTTP bridge. Without it the status bar reads `● daemon offline` and that `curl` path is unavailable; the MCP servers themselves are unaffected. Dispatch, worktree isolation, review, memory, and the coordinator are untouched, because none of them talk to it. See [the daemon guide](docs/install/daemon.md).
+
+**Before you install them, know what they run.** Each agent executes code from your
+checkout on every launch, with no immutable snapshot — so checking out a branch you
+have not reviewed (a fork's pull request above all) in a clone where they are loaded
+runs that branch's code as your user, within about two minutes for the fastest agent.
+The daemon and nightly agents source your shell secrets, and `com.vibesquad.chrome`
+owns your authenticated browser, so that execution carries real authority. The
+installer manages three of these agents, but two more — `com.chrono.squad-monitor` and
+`com.vibesquad.chrome` — are installed by no repository command and never appear in
+`bin/install-routines.sh --status`. Unload the agents before checking out an
+unreviewed branch and reload afterwards; [the daemon guide](docs/install/daemon.md#security-every-listed-agent-runs-code-from-your-checkout)
+lists every label and its exact `launchctl` commands. A fix separating the installed
+code root from the live data root is planned.
 
 `bin/squad up` opens a tmux control room with Chrono and a status window. Each specialist starts as a fresh native CLI process for its task; there are no permanent per-model panes. Detach with `Ctrl-b d`, return with `bin/squad attach`.
 
@@ -154,17 +168,18 @@ finished is picked up next session instead of dying with the thread.
 Durable memory is private Markdown outside the repository. Chrono records what a run learned and
 recalls it before the next one, so a lesson paid for once is not paid for twice.
 
-Each note carries where it came from and how sensitive it is, and gets flagged when a later note
-contradicts it. A contested claim comes back marked contested rather than quietly winning because it
-is newer. Obsidian is an optional way to read the same files by hand.
+Each note carries where it came from and how sensitive it is. There is no automatic contradiction
+flag: recall does not mark a note "contested," and a newer note does not silently win. Conflicts are
+resolved by explicit supersession links and human curation, and recall ranks on recorded usage
+feedback and provenance. Obsidian is an optional way to read the same files by hand.
 
 There is no graph database here, and no fashionable label applied for its own sake.
 
 ## Specialists, skills, and tools
 
 **71 specialist briefs** live under `departments/` and `shared/specialists/`, each validated on every
-push by CI — and on every commit once you enable the tracked pre-commit hook (see the Quickstart; it
-is opt-in per clone). A brief is prose: what the role is for, how it should think, what it must
+push by CI. The installed local pre-commit hook separately blocks private-memory artifacts before
+they enter history. A brief is prose: what the role is for, how it should think, what it must
 refuse. Adding one means writing Markdown, not registering a class.
 
 ```text
@@ -175,12 +190,14 @@ refuse. Adding one means writing Markdown, not registering a class.
                         grok    █                                 1
 ```
 
-Around them sit **99 skills** (methodology documents a specialist reads when the work calls for
-it), **six plugins**, and **12 MCP servers** covering memory, research, recon, media, and security
-tooling.
+Around them sit **65 skills** (methodology documents a specialist reads when the work calls for
+it — unique documents, with the per-runtime mirror copies collapsed), **five plugins**, and **12
+MCP servers** covering memory, research, recon, media, and security tooling.
 
-All five families run through their providers' **native CLIs** on subscription or managed-login
-paths — never swapped for an MCP relay or a direct API fallback. Utility services are separate.
+All five families run through their providers' **native CLIs** — never swapped for an MCP relay or a
+direct API fallback. Four authenticate on subscription or managed-login paths; the Grok board lane is
+the exception and requires an xAI API key (`model-lanes/lane-capabilities.tsv` declares
+`xai-api-key-only`). Utility services are separate.
 
 One rule governs all of it: **a configured tool is not a working tool until a live probe says so.**
 Declared, delivered, and actual are three different things, and only actual counts. That probe is

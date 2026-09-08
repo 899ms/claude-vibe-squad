@@ -2,7 +2,11 @@
 """Reject staged private-memory artifacts before they enter repository history.
 
 Install from the repository root:
-    ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit
+    bash docs/install/install-pre-commit-hook.sh
+
+The installer copies a reviewed snapshot into Git's private hooks directory.
+Do not symlink this worktree file there: another branch could replace the code
+Git executes on a later commit.
 
 The hook examines staged index blobs, so unstaged working-tree content cannot
 hide a restricted staged version or cause a false rejection.

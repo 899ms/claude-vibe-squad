@@ -1,5 +1,6 @@
 ---
 name: sandbox-provision-discipline
+audience: specialist
 description: Verify authorization, isolation, egress, credentials, persistence, evidence, and cleanup gates before provisioning or using a sandbox for PoCs, untrusted binaries, fuzzing, or other risky tests.
 ---
 

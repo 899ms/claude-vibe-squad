@@ -1,6 +1,6 @@
 # The Instruction-Layer STANDARD and audit RUBRIC
 
-Task: `TASK-2026-08-09-0020-md-standard-rubric` · specialist `prompt-engineer` · lane `claude`
+Task: `TASK-2099-01-01-0004-example-instruction-standard` · specialist `prompt-engineer` · lane `claude`
 Scope: **author only.** No instruction file is edited here. This document is the standard another
 author writes to, and the checklist another auditor applies line by line.
 

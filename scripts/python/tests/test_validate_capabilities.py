@@ -272,13 +272,44 @@ class MaintainerRunUnaffectedTests(unittest.TestCase):
         result = _run_validator(REPO_ROOT)
         combined = result.stdout + result.stderr
         self.assertNotIn("Traceback", combined, combined)
-        self.assertEqual(result.returncode, 0, combined)
+        rows = [json.loads(line) for line in result.stdout.splitlines()]
+        cards = [row for row in rows if row["type"] == "capability"]
+        self.assertEqual(
+            {row["file"] for row in cards},
+            {path.relative_to(REPO_ROOT).as_posix() for path in validate_capabilities.discover(REPO_ROOT)},
+        )
+        self.assertGreater(len(cards), 0)
+        for row in [*cards, next(row for row in rows if row["type"] == "catalog-registry")]:
+            self.assertEqual(row["status"], "pass", row)
+            self.assertEqual(row["errors"], [], row)
+
+        # The published mirror may contain stale demands even when every private
+        # card passes. Require every such demand to appear in the default run;
+        # a green result that ignored the mirror must fail this test.
+        retired = validate_capabilities.Validator(REPO_ROOT).retired_only_skills()
+        expected = {
+            (ref.name, path.relative_to(REPO_ROOT).as_posix(), ref.line)
+            for path in (REPO_ROOT / "shared/capabilities/public").rglob("*.md")
+            for ref in validate_capabilities.retired_skill_references(path.read_text(encoding="utf-8"), retired)
+            if ref.kind == "demand"
+        }
+        demand = next(row for row in rows if row["type"] == "skill-demand")
+        for error in demand["errors"]:
+            self.assertEqual(error["code"], "skill-retired", error)
+        actual = {
+            (error["name"], ref["file"], ref["line"])
+            for error in demand["errors"] for ref in error["references"]
+        }
+        self.assertEqual(actual, expected)
+        self.assertEqual(demand["demand_count"], len(expected))
+        self.assertEqual(demand["status"], "fail" if expected else "pass")
+        self.assertEqual(result.returncode, 1 if expected else 0, combined)
         summary = _summary(result.stdout)
-        self.assertEqual(summary["status"], "pass")
+        self.assertEqual(summary["status"], "fail" if expected else "pass")
         # The failure this guards against is a "pass" over an empty file set.
-        self.assertGreater(summary["files"], 0)
-        self.assertEqual(summary["failed"], 0)
-        self.assertEqual(summary["passed"], summary["files"])
+        self.assertEqual(summary["files"], len(cards) + 2)
+        self.assertEqual(summary["failed"], int(bool(expected)))
+        self.assertEqual(summary["passed"], summary["files"] - summary["failed"])
         self.assertNotIn("registry-not-published", result.stdout)
 
     def test_maintainer_self_test_still_passes(self) -> None:

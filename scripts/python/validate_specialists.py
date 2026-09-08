@@ -421,7 +421,7 @@ class Validator:
                 issues.append(f"invalid-safety-tags:{safety_tags}")
             if tool_profile not in tool_profiles:
                 issues.append(f"invalid-tool-profile:{tool_profile}")
-            # backup_lane may be "none" for a single-MODEL advisor (sol/fable): they have
+            # backup_lane may be "none" for a single-MODEL advisor (exodia/ichigo): they have
             # no cross-lane fallback, because a cross-model backup would run the advisor on
             # the wrong model (defeating its identity). Treat "none" like the throughput
             # "none" sentinel — skip routing/profile/adapter checks for it.

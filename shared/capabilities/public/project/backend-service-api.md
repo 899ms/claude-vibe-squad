@@ -28,9 +28,9 @@ concurrency, observability. Any browser UI belongs to `project/web-app`; the two
 | **S1** Frame (requirements) | `product-manager`, `architect` | — | `requirements-elicitation`, `scope-decomposition` | — |
 | **S2** Design (API + schema contract) | `architect`, `backend-engineer`, `database-engineer` | `context7` | `dependency-cycle-audit` | privacy overlay if PII |
 | **S3** Produce (build) | `backend-engineer`, `database-engineer` | `context7` | `structured-data-authoring` | — |
-| **S4** Verify | `test-engineer`, `performance-optimizer` | — | `behavior-preservation-test`, `representative-workload-design` | — |
+| **S4** Verify | `test-engineer`, `performance-optimizer` | — | — | — |
 | **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | `codex review`, `claude --from-pr` | — | review overlay (mandatory cross-family — persistence/high-safety; review tools MECHANICS ONLY — never replace the independent cross-family reviewer); +privacy if PII |
-| **S6** Ship/Deliver | `devops-engineer`, `site-reliability-engineer`, `technical-writer` | `plugin:github:github` | `rollback-test-coverage` | `production_mutation` (deploy), `credential_change`, `delete` (migration) |
+| **S6** Ship/Deliver | `devops-engineer`, `site-reliability-engineer`, `technical-writer` | `plugin:github:github` | — | `production_mutation` (deploy), `credential_change`, `delete` (migration) |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` | — | memory overlay (record) |
 
 **Notes.** Acceptance = API/protocol contract, migration correctness, concurrency, observability, and

@@ -30,10 +30,12 @@ _HEADING_RE = re.compile(r"^##\s+(.+?)\s*$")
 _CHECKBOX_RE = re.compile(r"^- \[(?P<mark>[ xX])\]\s+\S")
 _QUEUE_ID = r"Q-[A-Za-z0-9][A-Za-z0-9._-]*"
 _QUEUE_CLASS_RE = re.compile(rf"^QUEUE\s+(?P<id>{_QUEUE_ID})$")
+# DECLINE is a deprecated read-only alias solely so archived charters keep
+# parsing. New lines must use DROP (TASK-2099-01-01-0003-example-charter-update).
 _RESOLUTION_CLASS_RE = re.compile(
-    rf"^(?P<kind>FOLD|DECLINE)\s+resolves\s+(?P<id>{_QUEUE_ID})$"
+    rf"^(?P<kind>FOLD|DROP|DECLINE)\s+resolves\s+(?P<id>{_QUEUE_ID})$"
 )
-_TERMINAL_CLASS_RE = re.compile(r"^(FOLD|DECLINE)$")
+_TERMINAL_CLASS_RE = re.compile(r"^(FOLD|DROP|DECLINE)$")
 _LOOP_RE = re.compile(
     r"^- (?P<stamp>[^|]+?)\s*\|\s*(?P<classification>[^|]+?)\s*\|\s*"
     r"(?P<request>.+?)\s+—\s+why:\s*(?P<why>.+?);\s*resume:\s*(?P<resume>.+?)\s*$"
@@ -178,7 +180,7 @@ def parse_charter(path: Path, now: datetime | None = None) -> ThreadCharter:
         if not match:
             issues.append(
                 "OPEN LOOPS entry must be one line shaped "
-                "'<ISO> | FOLD|QUEUE Q-id|DECLINE [resolves Q-id] | request "
+                "'<ISO> | FOLD|QUEUE Q-id|DROP [resolves Q-id] | request "
                 "— why: ...; resume: ...': "
                 + line
             )

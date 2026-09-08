@@ -32,6 +32,8 @@ import stat
 from pathlib import Path
 from typing import Any
 
+from privacy import screened_json
+
 
 class JsonlAppendError(RuntimeError):
     """The line could not be durably appended."""
@@ -131,10 +133,13 @@ def append_line(destination: Path, payload: dict[str, Any]) -> Path:
     reason these files exist.
     """
     destination = Path(destination)
+    try:
+        line = (screened_json(payload, sort_keys=True, ensure_ascii=False) + "\n").encode(
+            "utf-8"
+        )
+    except ValueError as exc:
+        raise JsonlAppendError("unscreened output at privacy boundary") from exc
     destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    line = (json.dumps(payload, sort_keys=True, ensure_ascii=False) + "\n").encode(
-        "utf-8"
-    )
 
     nofollow = getattr(os, "O_NOFOLLOW", None)
     if nofollow is None:

@@ -396,7 +396,6 @@ response_summary() {
 
 autocapture_response_best_effort() {
     local path="$1"
-    [[ -n "${CHRONO_VAULT_ROOT:-}" ]] || return 0
     command -v python3 >/dev/null 2>&1 || {
         echo "[$(date '+%H:%M:%S')] warning: python3 unavailable; response auto-capture skipped" >&2
         return 0
@@ -404,7 +403,7 @@ autocapture_response_best_effort() {
     if ! PYTHONPATH="${VAULT_ROOT}/plugins/chrono-vault" python3 -c \
         'from vaultroot import resolve_vault_root; resolve_vault_root()' \
         >/dev/null 2>&1; then
-        return 0
+        echo "[$(date '+%H:%M:%S')] warning: response auto-capture vault root unavailable; attempting screened episodic capture" >&2
     fi
     # stderr is KEPT, not discarded. It used to go to /dev/null, so the only
     # thing that reached the log was "auto-capture failed: <file>" -- never

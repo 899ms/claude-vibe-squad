@@ -132,14 +132,14 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "mcp-reachability-audit",
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "prompt-cache-hit-monitoring",
             "requirement": "preferred"
           },
@@ -262,8 +262,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "eval-harness-pattern",
             "requirement": "preferred"
           },
@@ -280,8 +280,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "prompt-cache-discipline",
             "requirement": "preferred"
           },
@@ -348,8 +348,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "eval-harness-pattern",
             "requirement": "preferred"
           },
@@ -366,8 +366,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "prompt-cache-discipline",
             "requirement": "preferred"
           },
@@ -1464,8 +1464,8 @@
         "mcps": [],
         "skills": [
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "data-cleaning-pipeline",
             "requirement": "preferred"
           },
@@ -1488,8 +1488,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "schema-inference",
             "requirement": "preferred"
           },
@@ -1798,14 +1798,14 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "rollback-test-coverage",
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "secret-rotation-discipline",
             "requirement": "preferred"
           },
@@ -1915,8 +1915,8 @@
         "mcps": [],
         "skills": [
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "voice-consistency-audit",
             "requirement": "preferred"
           }
@@ -1973,8 +1973,8 @@
         "mcps": [],
         "skills": [
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "voice-consistency-audit",
             "requirement": "preferred"
           }
@@ -2008,6 +2008,57 @@
       ],
       "specialist": "editor",
       "surface_sha256": "500a94bcf8649dc7a38c76a1622a35e2ac67bc6401d3c52f15129609b638d773",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/exodia.md",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
+        "live-probed from this claude CLI session: chrono-vault recall returned results; mirrors the exodia:gpt-codex primary declaration"
+      ],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "exodia",
+      "surface_sha256": "c2f6d3fdb8a0c197810b8cedddc8603ac3ead10411becb15e8ab01e75c45eddc",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/exodia.toml",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "gpt-codex",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "exodia",
+      "surface_sha256": "c793d1e2cbbb805cd96be37740a98a8a6844b8b420bb44b352d7a8140993f9c5",
       "tools": []
     },
     {
@@ -2927,57 +2978,6 @@
       ]
     },
     {
-      "adapter": "model-lanes/claude/.claude/agents/fable.md",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "claude",
-      "limitations": [],
-      "mcps": [
-        "chrono-vault"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [],
-      "specialist": "fable",
-      "surface_sha256": "c2f6d3fdb8a0c197810b8cedddc8603ac3ead10411becb15e8ab01e75c45eddc",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/fable.toml",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "gpt-codex",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
-        "authored from the codex lane inventory, shared registry, and host PATH — not codex-live-probed (board-supervisor exit-75 blocks a fresh codex CLI)"
-      ],
-      "mcps": [
-        "chrono-vault"
-      ],
-      "primary_plan": [],
-      "skills": [],
-      "specialist": "fable",
-      "surface_sha256": "c793d1e2cbbb805cd96be37740a98a8a6844b8b420bb44b352d7a8140993f9c5",
-      "tools": []
-    },
-    {
       "adapter": "model-lanes/claude/.claude/agents/frontend-engineer.md",
       "coverage": "full",
       "known_unavailable": {
@@ -3249,8 +3249,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "cross-arch-test-discipline",
             "requirement": "preferred"
           }
@@ -3293,8 +3293,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "cross-arch-test-discipline",
             "requirement": "preferred"
           }
@@ -3568,6 +3568,57 @@
       "skills": [],
       "specialist": "harness-optimizer",
       "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/claude/.claude/agents/ichigo.md",
+      "coverage": "full",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "claude",
+      "limitations": [],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [
+        {
+          "capability_id": "chrono-vault",
+          "evidence": "capsource-generated-runtime-tool-summary",
+          "id": "chrono-vault",
+          "kind": "mcps",
+          "provider_lane": "claude",
+          "requirement": "preferred",
+          "resolution": "local"
+        }
+      ],
+      "skills": [],
+      "specialist": "ichigo",
+      "surface_sha256": "c2f6d3fdb8a0c197810b8cedddc8603ac3ead10411becb15e8ab01e75c45eddc",
+      "tools": []
+    },
+    {
+      "adapter": "model-lanes/gpt-codex/.codex/agents/ichigo.toml",
+      "coverage": "partial",
+      "known_unavailable": {
+        "mcps": [],
+        "skills": [],
+        "tools": []
+      },
+      "lane": "gpt-codex",
+      "limitations": [
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
+        "authored from the codex lane inventory, shared registry, and host PATH — not codex-live-probed (board-supervisor exit-75 blocks a fresh codex CLI)"
+      ],
+      "mcps": [
+        "chrono-vault"
+      ],
+      "primary_plan": [],
+      "skills": [],
+      "specialist": "ichigo",
+      "surface_sha256": "c793d1e2cbbb805cd96be37740a98a8a6844b8b420bb44b352d7a8140993f9c5",
       "tools": []
     },
     {
@@ -4204,8 +4255,8 @@
         "mcps": [],
         "skills": [
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "evidence-chain-preservation",
             "requirement": "preferred"
           },
@@ -4297,8 +4348,8 @@
         "mcps": [],
         "skills": [
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "evidence-chain-preservation",
             "requirement": "preferred"
           }
@@ -5088,14 +5139,14 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "regression-bisect-flow",
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "representative-workload-design",
             "requirement": "preferred"
           },
@@ -5202,14 +5253,14 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "regression-bisect-flow",
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "representative-workload-design",
             "requirement": "preferred"
           },
@@ -5776,8 +5827,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "behavior-preservation-test",
             "requirement": "preferred"
           },
@@ -5800,8 +5851,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "refactor-scope-bounding",
             "requirement": "preferred"
           }
@@ -5907,8 +5958,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "behavior-preservation-test",
             "requirement": "preferred"
           },
@@ -5931,8 +5982,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "refactor-scope-bounding",
             "requirement": "preferred"
           }
@@ -6586,8 +6637,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "rate-limit-respect",
             "requirement": "preferred"
           },
@@ -6598,8 +6649,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "tos-compliance-check",
             "requirement": "preferred"
           }
@@ -7189,14 +7240,14 @@
         "mcps": [],
         "skills": [
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "audit-context-prep",
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "gas-optimization-pattern",
             "requirement": "preferred"
           }
@@ -7281,14 +7332,14 @@
         "mcps": [],
         "skills": [
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "audit-context-prep",
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "gas-optimization-pattern",
             "requirement": "preferred"
           }
@@ -7596,8 +7647,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "cross-arch-test-discipline",
             "requirement": "preferred"
           }
@@ -7676,57 +7727,6 @@
         "osv-scanner",
         "trivy"
       ]
-    },
-    {
-      "adapter": "model-lanes/claude/.claude/agents/sol.md",
-      "coverage": "partial",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "claude",
-      "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
-        "live-probed from this claude CLI session: chrono-vault recall returned results; mirrors the sol:gpt-codex primary declaration"
-      ],
-      "mcps": [
-        "chrono-vault"
-      ],
-      "primary_plan": [],
-      "skills": [],
-      "specialist": "sol",
-      "surface_sha256": "c2f6d3fdb8a0c197810b8cedddc8603ac3ead10411becb15e8ab01e75c45eddc",
-      "tools": []
-    },
-    {
-      "adapter": "model-lanes/gpt-codex/.codex/agents/sol.toml",
-      "coverage": "full",
-      "known_unavailable": {
-        "mcps": [],
-        "skills": [],
-        "tools": []
-      },
-      "lane": "gpt-codex",
-      "limitations": [],
-      "mcps": [
-        "chrono-vault"
-      ],
-      "primary_plan": [
-        {
-          "capability_id": "chrono-vault",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-vault",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        }
-      ],
-      "skills": [],
-      "specialist": "sol",
-      "surface_sha256": "c793d1e2cbbb805cd96be37740a98a8a6844b8b420bb44b352d7a8140993f9c5",
-      "tools": []
     },
     {
       "adapter": "model-lanes/claude/.claude/agents/sound-designer.md",
@@ -8095,8 +8095,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "cross-arch-test-discipline",
             "requirement": "preferred"
           },
@@ -8107,8 +8107,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "simd-correctness-validation",
             "requirement": "preferred"
           },
@@ -8222,8 +8222,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "cross-arch-test-discipline",
             "requirement": "preferred"
           }
@@ -8264,8 +8264,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "authored:stub",
-            "evidence": "shared-skills:stub",
+            "availability": "superseded",
+            "evidence": "superseded",
             "id": "cross-arch-test-discipline",
             "requirement": "preferred"
           }
@@ -9613,9 +9613,9 @@
     }
   ],
   "generated": true,
-  "policy_sha256": "50c47921e74b141a2f16bed9f63262cd48436a3122ac6b1eb2261d53d49fa917",
+  "policy_sha256": "bab751e4fc6e80318b22b12cb5f6865560c1fc1a005a2c3e76c2151c7766ded7",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd",
+  "source_sha256": "f2c9c0c31b09cd444afd59058a071c68dee12283d74268f3525bea2b0a193673",
   "surface_count": 113
 }

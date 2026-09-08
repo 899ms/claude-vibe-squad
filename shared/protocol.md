@@ -12,10 +12,11 @@ from: chrono
 to_model: gpt-codex | claude | gemini | kimi | grok
 specialist: <canonical-specialist>
 source_namespace: coding | security | content | sysmgmt | research | shared
-compatibility_namespace: coding | security | content | sysmgmt | research
+compatibility_namespace: coding
 review_model: gpt-codex | claude | gemini | kimi | grok | none
 reviews: none | TASK-YYYY-MM-DD-HHMM-<suffix>
 mandatory_review: true | false
+review_triggers: []
 mode: bounty | project | modeless | <field absent → modeless>
 memory_aperture: rich | focused | default | cold | pool_blind | none
 memory_focus: <exact canonical note target; required only with focused> | none
@@ -40,6 +41,8 @@ model_override_reason: none
 parent_msg_id: none
 ---
 ```
+
+For `review_triggers` values and agreement with `mandatory_review`, see Mandatory Review Behavior below.
 
 This is the single mode contract. `project` and `bounty` are the two typed modes. `modeless` is the fail-closed
 third engagement state, with authority equal to the intersection of those typed modes. For a prepared packet,
@@ -175,7 +178,7 @@ On the maintainer installation, the local Git remote named `public` has `pushurl
 ordinary `git push public ...` from this checkout, but it is local Git configuration outside the repository and
 therefore is not a fresh-clone or server-side guarantee. Other public-release routes remain policy-held.
 
-The provider CLI is not the approval boundary. Claude, Gemini, and Kimi trusted launches explicitly suppress
+The provider CLI is not the approval boundary. Claude, Gemini, Kimi, and Grok trusted launches explicitly suppress
 their provider consent prompts; Codex runs non-interactively with its workspace-write sandbox, and every worker
 child receives a closed stdin. No provider prompt substitutes for Hard Rule 6 or for the Git deletion gate.
 
@@ -225,7 +228,7 @@ None of these is active today — treat them as the intended hardening roadmap, 
 
 1. Chrono writes a task body.
 2. `REVIEWS=none|TASK-... scripts/send-task.sh ... --mode <project|bounty|modeless>` requires explicit review intent plus an explicit operator-approved mode and adds frontmatter from the model map; it rejects either omission instead of inventing a packet fact.
-3. `bin/send-task.sh` requires the same `reviews: none|TASK-...` union on prepared packets, translates an absent prepared-packet `mode` field to `modeless`, validates safety, derives the verification contract, and writes to `departments/<compatibility_namespace>/inbox/`.
+3. `bin/send-task.sh` requires the same `reviews: none|TASK-...` union on prepared packets, translates an absent prepared-packet `mode` field to `modeless`, validates safety, derives the verification contract, and writes to the canonical mailbox `departments/coding/inbox/` (see board-native transport below).
 4. `bin/send-task.sh` registers the task under the shared registry lock, advances `delivery_state` to `in-progress`, builds a signed launch context with `scripts/python/dispatch_context_builder.py build`, and detaches `bin/board-supervisor.sh detached-launch`.
 5. The supervisor provisions a private git worktree under `_state/board-worktrees/<attempt-id>/` and execs a **fresh, capability-scoped CLI** for the packet's lane; that CLI reads the packet and the named specialist markdown.
 6. The CLI writes the return artifact and the outbox completion envelope **inside its worktree**. The supervisor validates both, publishes the artifact first and the envelope last into the repo, and runs `scripts/python/registry_reconciler.py` to settle the registry.
@@ -235,9 +238,11 @@ Steps 4–6 are the **board-native** transport (`bin/send-task.sh:48` defaults `
 detailed in Delivery Contract below. There is no persistent model-lead window: the per-model lane windows were
 retired at the Phase-3 cutover (`bin/launch-squad.sh:624-628`), and each dispatch spawns its own CLI instead.
 
-`source_namespace` selects the specialist markdown. `compatibility_namespace`
-selects the mailbox folder. Shared specialists do not have a `departments/shared`
-mailbox; Chrono chooses the mailbox namespace that matches the active workflow.
+`source_namespace` selects the specialist markdown. Board-native transport uses the
+canonical mailbox root `departments/coding`, defined by `CANONICAL_MAILBOX_ROOT` in
+`scripts/python/dispatch_context_builder.py`; `compatibility_namespace` is `coding`
+regardless of specialist or workflow. Legacy per-namespace response declarations are
+normalized to that mailbox before admission. Shared specialists use this same transport.
 
 ### Dispatcher filesystem threat boundary
 
@@ -247,8 +252,8 @@ and no untrusted or concurrent process may rename or replace `departments/`, a
 mailbox directory, or its `inbox/` while dispatch is running.
 
 Within that boundary, `bin/send-task.sh` rejects NUL bytes and non-canonical task
-IDs, allowlists every `compatibility_namespace` before using it as a path
-component, rejects existing symlinked mailbox components before creation, and
+IDs and uses a constant mailbox namespace path component (`MAILBOX_NAMESPACE`);
+no packet field selects that component. It rejects existing symlinked mailbox components before creation and
 requires the physical inbox to equal the expected directory below the resolved
 `VAULT_ROOT`. A symlinked prefix in the configured root itself is allowed (for
 example macOS `/tmp` resolving to `/private/tmp`).
@@ -350,19 +355,19 @@ decision. `pane_delivery_attempted` and failover `accepted_at` are historical vo
 Lifecycle step 6 has **two** required outputs, not one. On finishing a task the spawned specialist CLI writes both:
 
 1. the **`return_artifact`** named in the packet, and
-2. the **outbox completion envelope** at `departments/<compatibility_namespace>/outbox/<id>-response.md`.
+2. the **outbox completion envelope** at the canonical mailbox `departments/coding/outbox/<id>-response.md` (see board-native transport above).
 
 That means two logical outputs and, for ordinary prepared packets, two distinct files. The convenience
 wrapper `scripts/send-task.sh ... --mode <project|bounty|modeless>` is a compatibility exception: it authors
 `return_artifact` equal to the outbox envelope path, so one physical envelope-shaped file serves both roles and no
-separate work artifact is delivered. The publisher writes both logical outputs to that same destination
-idempotently when their bytes match (`scripts/python/dispatch_context_builder.py:2341-2353`). Do not describe
+separate work artifact is delivered. `dispatch_context_builder.bridge_worktree_outputs` publishes one canonical
+envelope for the shared destination and records it as both logical outputs, with idempotent retry. Do not describe
 that wrapper as producing a separate artifact.
 
 **Before** declaring a task `complete`, apply the **verify-before-claiming-done** discipline (Hard Rule 8): run
 the actual verification (commands/tests/re-reads) and confirm the claimed outcome — never emit a `complete`
 `status` on an unverified result. On the **Claude lane** this is the invokable `verification-before-completion`
-skill (`supported_lanes: claude`; codex/kimi/gemini apply the same discipline via their own means, not this
+skill (`supported_lanes: claude`; codex/kimi/gemini/grok apply the same discipline via their own means, not this
 claude-only skill).
 
 On the board rail the detached supervisor invokes `scripts/python/registry_reconciler.py` for its task after
@@ -383,7 +388,7 @@ retired (`scripts/python/registry_reconciler.py:3678-3725`). The fenced board re
 net when no worker-authored envelope was promoted. The staged V4 contract does not treat artifact presence,
 path, or `mtime` as settlement; migration of that runtime seam remains open.
 
-The specialist CLI derives `<id>` from the packet's `id` field and `<compatibility_namespace>` from the packet's own mailbox path (`departments/<X>/inbox/<id>.md` → `<X>`), which is present for every packet even when the `compatibility_namespace` frontmatter field is omitted.
+The specialist CLI derives `<id>` from the packet's `id` field; the mailbox follows board-native transport above even when the `compatibility_namespace` frontmatter field is omitted.
 
 Envelope schema — frontmatter, then a summary body whose first paragraph the reconciler surfaces:
 
@@ -434,7 +439,7 @@ settlement and human/controller receipt are separate facts.
 | path | who receives it, and when | when nobody is there | implementation evidence |
 |---|---|---|---|
 | **Ordinary single-task response envelope as machine publication marker** | The output bridge receives the worker envelope at attempt finalization, validates its structure/summary, reconstructs canonical metadata from launch authority, and publishes it after the return artifact. A racing watcher/reconciler may consume that outbox candidate; otherwise the later fenced V2 receipt preempts it for settlement. This path's recipients are controller machinery and any explicit file reader, not a person by default. | Publication and machine settlement can finish with no human or headless controller present. A valid envelope alone gives neither one the result; one of the observation paths below must still be attended. | `scripts/python/dispatch_context_builder.py:1600-1636,1736-1759,1968-2052,2298-2353`; `bin/board-supervisor.sh:263-278`; `scripts/python/registry_reconciler.py:1055-1104,3257-3265,3445-3641` |
-| **Outbox file as stored content** | A later human/controller receives the content only when it explicitly opens or polls `departments/<namespace>/outbox/<id>-response.md`; a running outbox watcher sees it on its replay scan or next filesystem event. The file is available after the controller's artifact-first, envelope-last publication. | If nobody opens, polls, or watches the outbox, nobody receives the content. The file remains stored; existence is not delivery. | `scripts/python/dispatch_context_builder.py:2341-2353`; `bin/outbox-watcher.sh:629-652` |
+| **Outbox file as stored content** | A later human/controller receives the content only when it explicitly opens or polls `departments/coding/outbox/<id>-response.md`; a running outbox watcher sees it on its replay scan or next filesystem event. The file is available after the controller's artifact-first, envelope-last publication. | If nobody opens, polls, or watches the outbox, nobody receives the content. The file remains stored; existence is not delivery. | `scripts/python/dispatch_context_builder.py::publish_prepared_worktree_outputs` / `bridge_worktree_outputs`; `bin/outbox-watcher.sh:629-652` |
 | **Chrono tmux-pane nudge** | Only the live `${SQUAD_SESSION}:chrono` pane is targeted, immediately after a completion event is reconciled or observed. An attended human/controller at that pane is the intended live recipient. | If the session/window is absent, the code sends nothing. If the pane exists but is unattended, tmux success proves only that the keystrokes and Enter were accepted; it does not prove that anyone read or acted. The reconciler persists the event's notification key before attempting the nudge, so a missing/failed pane is not retried merely because it later appears. The file and registry state remain for later inspection, and reconciler-emitted events also have a durable queue record, but there is no live recipient. | `scripts/python/registry_reconciler.py:263-328,392-424`; `bin/outbox-watcher.sh:126-171,561-626` |
 | **Registry-watch stdout (`bin/board-notify.sh`)** | A headless polling controller receives one line only if it explicitly starts this long-lived process **and consumes its stdout**. On the next poll (default interval: one second) it prints `task=<id> status=<registry-state> artifact=yes\|no` for a previously open task, or a newly appearing task, whose latest snapshot is in the notifier's deferred/terminal target set. These are not all successful completions: blocked, timed-out, review/rework, cancellation, and no-envelope states are also targets. `artifact=yes\|no` is an advisory file-presence lookup, not validation or receipt; because the notifier discards registry metadata and falls back to finding a task packet, a normal post-cleanup result can report `artifact=no` even when its promoted artifact exists. | There is no persisted cursor or downtime replay. If the notifier is not running, stdout has no reader, or the target state was already present when the initial snapshot was taken, nobody receives an event. `review-required` remains classified as live and produces no line merely because the lane reached that hold. The default squad launcher starts `outbox-watcher.sh` and the reconcile sweep, not this notifier. | `bin/board-notify.sh:17-55`; `scripts/python/chrono_state/registry.py:35-63`; `bin/launch-squad.sh:217-231`; packet cleanup/lookup: `bin/board-supervisor.sh:2938-2953`, `scripts/python/registry_reconciler.py:1828-1865` |
 | **Durable Chrono queue record** | The reconciler appends `_state/chrono-queue.md` before attempting the pane nudge. A later session/rotation reader receives that record only when it explicitly reads the file. | With no later reader it is durable storage, not a notification. Queue persistence does not make an unattended pane delivered and does not feed `board-notify.sh`. | `scripts/python/registry_reconciler.py:239-250,392-400` |
@@ -460,8 +465,8 @@ fails closed — the task stays open rather than settling on a guess.
 
 | status | who may author it | meaning |
 |---|---|---|
-| `complete` | worker | Finished **and verified** (Hard Rule 8). Nothing is owed. |
-| `needs_review` | worker | Finished, but a reviewer/Chrono must look before it counts — **only when the packet declares review** (`mandatory_review: true` or a non-empty `review_triggers`). A worker cannot manufacture review debt: an untriggered `needs_review` settles to `complete` with its coordination signal preserved (`registry_reconciler.py::resolve_worker_status`). Still the way to surface a `## NEEDS FROM CHRONO`. |
+| `complete` | worker | Finished **and verified** (Hard Rule 8). Nonblocking coordination may be requested separately; see Surfacing needs to Chrono below. |
+| `needs_review` | worker | Finished, but a reviewer/Chrono must look before it counts — **only when the packet declares review** (`mandatory_review: true` or a non-empty `review_triggers`). A worker cannot manufacture review debt: an untriggered `needs_review` settles to `complete` with its coordination signal preserved (`registry_reconciler.py::resolve_worker_status`). Coordination alone does not select this status. |
 | `needs_human` | worker | **Stopped pending an operator decision** — an approval, an operator gate, or the injected no-delete rule. Strictly stronger than `needs_review`: it is a question, not a deliverable. |
 | `blocked` | worker | Could not proceed; no usable result. |
 | `cancelled` | **controller only** | Chrono, or the reconciler's never-launched release, cancelled the task. A worker may never author this. |
@@ -492,11 +497,11 @@ unverified, which a periodic sweep — not this mechanism — would have to clos
 
 For a capability-pinned task, the envelope must echo the exact dispatched
 `capability_card_sha256`; a mismatched echo keeps the task open, including before cross-family review
-settlement. A **missing** echo is judged by who wrote the response. When the envelope echoes the exact
-`delivery_attempt_id` / `delivery_generation` that the launch authority minted at registry insertion and never
-put in the packet, an absent row can only be our own promotion path dropping it — no finished worker can add it
-back — so it is recorded as an advisory and settlement proceeds on the registry's own pin. Without that proof
-the response is unidentified, which is settlement question 1, and the task stays open; Chrono clears it with
+settlement. For a **missing** echo, `registry_reconciler.capability_pin_echo` records an advisory and proceeds
+on the registry's own pin when the envelope matches the current `delivery_attempt_id` / `delivery_generation`.
+That match identifies the attempt; it does not authenticate controller authorship. The known limits of this
+predicate are recorded in `docs/standards/settlement-guard-coverage.md` (the attempt-fence proof discussion).
+Without a matching fence the task stays open; Chrono clears it with
 `--repair-envelope`, which re-renders the row from the locked registry. Reconciliation compares the current
 card hash separately and records/surfaces `capability_card_drift`, but drift does not rewrite the pinned ID,
 hash, derived state, or gates and does not by itself block a correctly pinned response. A single task carrying
@@ -514,9 +519,9 @@ That guarantee is **board-rail-scoped and does not generalise**. On the V1 compa
 `registry_reconciler.landed_response` validates nothing about the response it selects — not `id`, not
 `in_response_to`, not `type`, not the attempt fence, and it does not reject duplicate frontmatter keys — and
 `worker_response_issue` returns early for any task with no `delivery_worker_id`. That is why the missing-echo
-rule above turns on the attempt fence the authority actually wrote, not on the rail the task happens to be on.
+rule above tests the attempt fence, with the provenance limitation documented above, rather than the rail label.
 
-### Surfacing needs to Chrono (`## NEEDS FROM CHRONO`)
+### Surfacing needs to Chrono
 
 A spawned worker is **not** an orchestrator. It must not spawn sub-tasks, launch a model CLI
 (`claude`/`codex`/`gemini`/`kimi`), run `send-task.sh`, or coordinate with another specialist directly — its
@@ -525,19 +530,21 @@ Chrono's sole responsibility (root CLAUDE.md: Chrono is the only controller).
 
 When a task needs something beyond the worker's scope mid-flight — a live canary/probe that requires launching
 a CLI, another specialist's help, a wider write scope, a follow-up dispatch, or it is blocked on a dependency —
-the worker does the work it *can* do and adds a **`## NEEDS FROM CHRONO`** section to its response body listing
-exactly what it needs, returning `status: needs_review` (or `blocked` if it cannot proceed). Chrono reads
-`## NEEDS FROM CHRONO` on every landed response and orchestrates it (runs the canary outside the sandbox,
-dispatches the other specialist, widens scope, chains the follow-up). `shared/dispatch-toolkit.sh` appends this
-rule to every dispatched brief, so it holds regardless of the per-packet body.
+the worker does the work it *can* do and follows `shared/dispatch-toolkit.sh` § Request nonblocking
+coordination without changing completion, the instruction injected into every dispatched brief.
+Use its **`## COORDINATION REQUESTED`** section for the exact follow-up Chrono should route, and select
+completion status by the response-status table above. The reconciler also recognizes the legacy
+`## NEEDS FROM CHRONO` heading. Chrono reads these requests on landed responses and orchestrates the
+follow-up (runs the canary outside the sandbox, dispatches the other specialist, or widens a later scope).
 
 #### Two-blocker stop (operator-ratified)
 
 If you hit **two consecutive blockers on the same objective** — a fix bounced, or two attempts at the same
 target failed even for what looked like two different reasons — **stop retrying.** A third blind variant is not
 work; it is noise, and it is the named failure mode. Read the validator / the literal error / the production
-path, then either (a) proceed on the evidence you now have, or (b) return `status: blocked` (or `needs_review`
-with a `## NEEDS FROM CHRONO`) whose body carries the two failures as evidence: what you tried, the **verbatim**
+path, then either (a) proceed on the evidence you now have, or (b) report the remaining need using Surfacing
+needs to Chrono above, with status selected by the response-status table. Carry the two failures as evidence:
+what you tried, the **verbatim**
 errors, and the hypothesis they point to. Retrying past two on one objective without new evidence is itself the
 failure Chrono needs to see. (A fresh objective, or the first failure of a fresh approach, resets the count —
 one blocker is just a blocker.)
@@ -577,13 +584,12 @@ is the standing positive-control discipline (root `CLAUDE.md` Hard Rule 8; the d
 control at `scripts/python/tests/test_golive_integration.py:312-342` is the same shape applied to an admission
 check) written down for findings.
 
-**Where the pair lives — in the finding artifact, never in the settlement envelope.** The pair and its binding
-live in the **returned finding artifact** (the packet's `return_artifact`), and never in the `<id>-response.md`
-settlement envelope. This keeps finding evidence in the deliverable that a reviewer opens. The envelope does
-not set `artifact_bundle_sha256` merely because the artifact contains a commit or checksum: that optional
-frontmatter field is reserved for deliberately declaring the canonical artifact-list digest and activating
-the manifest-backed hold described in the Completion Contract. Bundle-like body prose and quoted commands are
-ordinary evidence and never activate that hold.
+**Where the pair lives — in the returned finding artifact.** Put the pair and its binding in the packet's
+`return_artifact`. Follow the Completion Contract's two-logical-output rule: when artifact and envelope paths
+are distinct, the envelope points to the evidence; when they coincide, the shared file's body carries it.
+This keeps finding evidence in the deliverable that a reviewer opens without requiring an undeclared path.
+The optional `artifact_bundle_sha256` frontmatter declaration and its manifest-backed hold remain governed
+by the Completion Contract; evidence in the body does not declare that field.
 
 **Binding the pair to reproducible bytes.** A digest is not a thing you can check out: `artifact_bundle_sha256`
 is `hash_canonical(sorted({path, sha256, role}))` over an artifact list (`scripts/python/vibecoding_check.py:363-378`)
@@ -630,8 +636,8 @@ finding:
 there is no k and no selection function (`shared/routing.md` § Dispatch shape; `verification_contract.py`
 rejects any `dispatch_kind` other than `single`). It does not add a gate: a finding that ships no validated
 pair is **incomplete evidence**, handled like any other coordination need (below), never a blocked, failed, or
-held task. Our v2 carried 24 gates and 49 kill mechanisms and produced zero submissions across five audits;
-this is a response contract, not a 25th gate. `scripts/python/tests/test_replay_control_contract.py` proves the
+held task. Earlier bounty workflows accumulated gates and kill mechanisms that obstructed progress toward submission;
+that experience motivates keeping this a response contract. `scripts/python/tests/test_replay_control_contract.py` proves the
 non-gate property directly against the **real reconciler**: a `complete` task still settles `complete` for a
 missing block, a malformed block, a replay that exits nonzero, and a control that exits zero — only the finding
 evidence is marked incomplete, never the task.
@@ -647,11 +653,11 @@ coordinator's manual step below. A well-formed pair that nobody executes validat
 
 The coordinator (Chrono, outside the worker sandbox) is the executor. This is deliberately **manual**: no
 automation is wired into the dispatch rail, and the finding is not gated on it. Work from the **finding
-artifact** named by the envelope's `return_artifact`; the settlement envelope carries none of this. For each
+artifact** named by the envelope's `return_artifact`, following the placement rule above. For each
 finding-bearing response that lands:
 
 1. **Read** the finding artifact's `## replay-control` block. If it is missing or malformed (the shape test
-   would reject it), the finding is **incomplete evidence**: treat it as a `## NEEDS FROM CHRONO`-style
+   would reject it), the finding is **incomplete evidence**: treat it as a `## COORDINATION REQUESTED`-style
    coordination item — ask the specialist for the pair, do not surface the finding as proven. Do not block,
    fail, or kill it.
 2. **Materialise the bound bytes** — do not assume the attempt worktree still exists; the normal success path
@@ -669,8 +675,8 @@ finding-bearing response that lands:
 3. **Run the replay command verbatim.** Capture its **exit code** and a **short output excerpt**. Expect exit 0.
 4. **Run the control command verbatim.** Capture its **exit code** and a **short output excerpt**. Expect exit ≠ 0.
 5. **Record** both runs — the literal command, the observed exit code, the output excerpt, and the PASS/FAIL
-   verdict — on the **landed finding artifact** (not the settlement envelope, which must stay free of
-   bundle-digest prose), under an `observed-by-coordinator:` note with a timestamp. That appended note is the
+   verdict — on the **landed finding artifact**, following the placement rule above, under an
+   `observed-by-coordinator:` note with a timestamp. That appended note is the
    evidence of record; nothing settles a finding as *verified* without it (root `CLAUDE.md` Hard Rule 8: verify
    before claiming done). Quote the literal exit codes — a "pair holds" that does not quote the two exit codes
    is not a verdict.
@@ -703,7 +709,7 @@ Expected is not the same as gating. Apply-feedback remains best-effort telemetry
 Senders do not block on lane-to-lane work. If a response is required, track the task ID and check/surface the outbox result later.
 
 The staged V4 state model keeps questions separate from process status. Until P7 wires a real consumer,
-`needs_human` and `## NEEDS FROM CHRONO` remain the live V3 compatibility surface described above.
+the response-status table and Surfacing needs to Chrono section above govern the live V3 surface.
 
 ## Boundary-Blocking Doctrine
 
@@ -713,8 +719,8 @@ restate it. Immutable historical records — append-only workboard events under 
 may quote the rule as evidence of when it was adopted; those are dated events, never a second
 authority, and this section wins on any difference.
 
-`shared/modes/bounty.md` records the mode-local ancestor: bounty v2 carried 24 gates and produced
-zero submissions across five audits, and its v3 fix replaced them with one written test. That rule
+`shared/modes/bounty.md` records the mode-local ancestor: accumulated checks obstructed progress toward
+submission, motivating a written test for whether a check helps the work advance. That rule
 stays distinct and mode-local — it asks whether a check moves a finding toward submission, not
 whether a lifecycle boundary owns a condition. It was applied only to bounty mode while the
 dispatch/settlement layer repeated the same accumulation, until the 2026-08-31 settlement outage
@@ -782,7 +788,7 @@ arithmetic error, a stream-merge defect), while 23 tasks that closed without rev
 the flag earns its cost only on the four triggers above.
 
 The shared review-gate that every review-overlay S5 step fires has a two-part **request → receive** discipline,
-invokable on the **Claude lane** (`supported_lanes: claude`; codex/kimi/gemini apply the same discipline via
+invokable on the **Claude lane** (`supported_lanes: claude`; codex/kimi/gemini/grok apply the same discipline via
 their own means): **`requesting-code-review`** — before handing off, the author confirms the work actually meets
 the packet's requirements/scope; **`receiving-code-review`** — findings are weighed on merit (especially when a
 comment is unclear or technically questionable) before any change is made. This loop **supplements, never
@@ -818,7 +824,7 @@ For a pending task, automatic behavior is deliberately limited to **flag, hold, 
   ```bash
   python scripts/python/registry_reconciler.py \
     --settle-review TASK-... \
-    --review-ref departments/<namespace>/<outbox|archive>/TASK-...-response.md
+    --review-ref departments/coding/<outbox|archive>/TASK-...-response.md
   ```
 
   The review path is audit provenance only. The command requires an existing in-vault mailbox response, a held cross-family task, and a landed subject response in `complete` or `needs_review`; it is lock-serialized, idempotent for the same task/reference, rejects conflicting references, records `review_settled_by: chrono-explicit`, and emits one `REVIEW-SETTLED` audit line. Task lanes must not invoke this controller capability themselves. If a review is blocked, incomplete, malformed, or ambiguous, Chrono does not run the command and the task stays open.

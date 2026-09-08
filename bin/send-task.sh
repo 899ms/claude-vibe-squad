@@ -1792,7 +1792,6 @@ info "Dispatch log updated"
         || die "refusing to overwrite existing board log"
     [[ ! -e "$BOARD_RECEIPT" && ! -L "$BOARD_RECEIPT" ]] \
         || die "refusing to overwrite existing board receipt"
-    BOARD_FAILURE_MARKER="${BOARD_STATE_DIR}/${TASK_ID}.${DELIVERY_ATTEMPT_ID}.settlement-error"
     if ! BOARD_START_ERROR="$(
         python3 - "$VAULT_ROOT" "$TASK_ID" "$DELIVERY_ATTEMPT_ID" \
             "$DELIVERY_GENERATION" <<'PYEOF' 2>&1
@@ -1871,7 +1870,7 @@ PYEOF
         python3 - "$BOARD_SUPERVISOR" "${VAULT_ROOT}/scripts/python" \
             "$BOARD_METADATA" "$TASK_ID" "$DELIVERY_ATTEMPT_ID" \
             "$DELIVERY_GENERATION" "$BOARD_CONTEXT" "$BOARD_LOG" \
-            "$BOARD_RECEIPT" "$BOARD_FAILURE_MARKER" "$DISPATCH_CONTEXT_BUILDER" \
+            "$BOARD_RECEIPT" "$DISPATCH_CONTEXT_BUILDER" \
             "$VAULT_ROOT" "$TASK_ID" "$BOARD_LANE" "$BOARD_SETTLEMENT_ARTIFACT" \
             "$MAILBOX_NAMESPACE" "${VAULT_ROOT}/bin/registry-reconciler.sh" <<'PYEOF'
 import json

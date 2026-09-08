@@ -296,7 +296,7 @@ PYEOF
 # gating on mode would silently strip a real consumer's toolchain.
 #
 # Why not NAMESPACE (the prior selector, REJECTED by cross-family review 2026-08-11):
-# `source_namespace` is a mailbox/storage location, never a risk signal (root Hard Rule 3).
+# `source_namespace` selects the specialist's role markdown, never a risk signal (root Hard Rule 3).
 # Keying on it dropped the toolchain from every high-safety or heightened-risk role that
 # lives outside the `security` mailbox -- `smart-contract-engineer` (coding namespace,
 # safety_level:high, heightened_risk:true, dual-use/financial) foremost, plus 15 others
@@ -582,7 +582,7 @@ esac
 
 # ── completion contract: lanes emit BOTH return_artifact AND outbox envelope ──
 # Appended to every dispatched brief. bin/outbox-watcher.sh + registry_reconciler
-# key on departments/<ns>/outbox/<id>-response.md; without it finished work sits
+# key on departments/coding/outbox/<id>-response.md; without it finished work sits
 # in-flight until Chrono hand-reconciles. This is the primary path; the
 # reconciler's work-done-no-envelope flag is only the backstop.
 
@@ -603,7 +603,7 @@ On finishing this task you MUST write TWO files:
    *reading* the target — the file lands outside your worktree, prevalidation finds nothing to promote,
    and your task settles `blocked` with `failure_class: request_validation` **even though you finished
    the work**. Absolute paths are for reading inputs. The artifact is written relative to cwd.
-2. **The outbox completion envelope** → `departments/<compatibility_namespace>/outbox/<id>-response.md`, where `<id>` is this packet's `id` and `<compatibility_namespace>` is the department mailbox this packet was read from (`departments/<X>/inbox/<id>.md` → use `<X>`; authoritative even when the packet omits a `compatibility_namespace` field). The live `bin/outbox-watcher.sh` keys on this envelope to auto-reconcile the registry and surface your result to Chrono. Without it, finished work sits `in-flight` until it is hand-reconciled.
+2. **The outbox completion envelope** → `departments/coding/outbox/<id>-response.md`, where `<id>` is this packet's `id`. The destination is the canonical coding mailbox; no packet field or source mailbox changes it. The live `bin/outbox-watcher.sh` keys on this envelope to auto-reconcile the registry and surface your result to Chrono. Without it, finished work sits `in-flight` until it is hand-reconciled.
 
 The envelope is markdown — this frontmatter, then a short summary body (its first paragraph is surfaced as the summary):
 

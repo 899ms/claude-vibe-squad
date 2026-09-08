@@ -19,6 +19,10 @@ PYTHON_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PYTHON_ROOT))
 
 import dispatch_context_builder as dcb  # noqa: E402
+import registry_reconciler as reconciler  # noqa: E402
+from verification_contract import (  # noqa: E402
+    derive_verification_contract, verification_contract_sha256,
+)
 
 RECONCILER = PYTHON_ROOT / "registry_reconciler.py"
 
@@ -52,6 +56,160 @@ def review(
     if verdict is not None:
         meta["verdict"] = verdict
     return envelope(meta, body=body)
+
+
+class TypedReviewContractTests(unittest.TestCase):
+    roles = ("code-reviewer", "security-analyst", "skeptic", "architect")
+
+    def test_review_verification_forgery_matrix_at_both_response_statuses(self) -> None:
+        for specialist in self.roles:
+            for result_type in ("review", "verification"):
+                for status in ("complete", "needs_review"):
+                    valid = self.entry(specialist, result_type=result_type)
+                    self.assertFalse(reconciler.response_review_pending(valid, status)[0])
+                    contract = valid["verification_contract"]
+                    variants = (
+                        {"review_subject_author_family": contract["author_family"]},
+                        {"judged_state_mutation": True},
+                        {"review_family": contract["review_subject_author_family"]},
+                        {"review_state": "pending"},
+                        {"review_subject_sha256": "invalid"},
+                    )
+                    for changes in variants:
+                        with self.subTest(specialist=specialist, result_type=result_type,
+                                          status=status, changes=changes):
+                            forged = self.entry(specialist, result_type=result_type)
+                            forged["verification_contract"].update(changes)
+                            # Rehash the tampered contract to prove the evidence
+                            # check fires even when its digest is self-consistent.
+                            forged["verification_contract_sha256"] = verification_contract_sha256(
+                                forged["verification_contract"])
+                            with self.assertRaises(dcb.DispatchContextError):
+                                dcb.validate_verification_contract(self.fields(forged))
+                            self.assertTrue(reconciler.response_review_pending(forged, status)[0])
+
+    @staticmethod
+    def entry(specialist: str, *, typed: bool = True, **evidence: object) -> dict:
+        lane = "claude" if specialist == "skeptic" else "gpt-codex"
+        family = "claude" if lane == "claude" else "openai"
+        subject_family = "openai" if family == "claude" else "claude"
+        admission = {
+            "task_id": "TASK-2026-09-07-0001-typed-review",
+            "run_id": "RUN-TEST", "mode": "project",
+            "result_type": "review" if typed else "normal",
+            "to_model": lane, "review_required": True,
+        }
+        if typed:
+            admission.update({
+                "review_subject_sha256": "a" * 64,
+                "review_subject_author_family": subject_family,
+                "review_family": family, "review_state": "complete",
+                "judged_state_mutation": False,
+            })
+            admission.update(evidence)
+        contract = derive_verification_contract(admission)
+        return {
+            "id": admission["task_id"], "specialist": specialist,
+            "to_model": lane, "review_model": "gpt-codex" if lane == "claude" else "claude",
+            "write_scope": [], "mandatory_review": True,
+            "review_triggers": ["blast_radius"], "review_class": "standard",
+            "verification_contract": contract,
+            "verification_contract_sha256": verification_contract_sha256(contract),
+        }
+
+    @staticmethod
+    def fields(entry: dict) -> dict[str, str]:
+        return {key: json.dumps(value) if isinstance(value, (dict, list, bool)) else value
+                for key, value in entry.items()}
+
+    def test_untyped_empty_scope_roles_still_owe_review(self) -> None:
+        for specialist in self.roles:
+            for scope in ([], ["artifact.md"]):
+                with self.subTest(specialist=specialist, scope=scope):
+                    entry = self.entry(specialist, typed=False)
+                    entry["write_scope"] = scope
+                    self.assertTrue(reconciler.cross_family_review_pending(entry)[0])
+                    self.assertTrue(reconciler.response_review_pending(entry, "needs_review")[0])
+
+    def test_terminal_evidence_agrees_at_admission_and_settlement(self) -> None:
+        for specialist in self.roles:
+            for result_type in ("review", "verification"):
+                with self.subTest(specialist=specialist, result_type=result_type):
+                    entry = self.entry(specialist, result_type=result_type)
+                    contract = dcb.validate_verification_contract(self.fields(entry))
+                    self.assertIs(contract["deliverable_review_policy"]["required"], False)
+                    self.assertFalse(reconciler.cross_family_review_pending(entry)[0])
+                    self.assertFalse(reconciler.response_review_pending(entry, "needs_review")[0])
+
+    def test_role_and_empty_scope_cannot_claim_no_review_at_admission(self) -> None:
+        for specialist in self.roles:
+            with self.subTest(specialist=specialist):
+                entry = self.entry(specialist, typed=False)
+                entry["verification_contract"]["deliverable_review_policy"]["required"] = False
+                entry["verification_contract_sha256"] = verification_contract_sha256(
+                    entry["verification_contract"]
+                )
+                with self.assertRaisesRegex(dcb.DispatchContextError, "demand a different-family review"):
+                    dcb.validate_verification_contract(self.fields(entry))
+                self.assertTrue(reconciler.cross_family_review_pending(entry)[0])
+
+    def test_same_family_and_mutating_reviews_remain_reviewable(self) -> None:
+        for specialist in self.roles:
+            valid = self.entry(specialist)
+            for change in (
+                {"judged_state_mutation": True},
+                {"review_subject_author_family": valid["verification_contract"]["author_family"]},
+                {"review_family": "google"},
+            ):
+                with self.subTest(specialist=specialist, change=change):
+                    entry = self.entry(specialist, **change)
+                    contract = dcb.validate_verification_contract(self.fields(entry))
+                    self.assertIs(contract["deliverable_review_policy"]["required"], True)
+                    self.assertTrue(reconciler.cross_family_review_pending(entry)[0])
+
+    def test_nonempty_scope_and_invalid_review_routes_still_hold(self) -> None:
+        for specialist in self.roles:
+            with self.subTest(specialist=specialist):
+                entry = self.entry(specialist)
+                entry["write_scope"] = ["artifact.md"]
+                with self.assertRaisesRegex(dcb.DispatchContextError, "demand a different-family review"):
+                    dcb.validate_verification_contract(self.fields(entry))
+                self.assertTrue(reconciler.cross_family_review_pending(entry)[0])
+            for changes in (
+                {"review_model": "none"},
+                {"review_model": self.entry(specialist)["to_model"]},
+                {"review_class": "security-finding"},
+                {"review_class": "unreadable"},
+                {"to_model": "gemini"},
+            ):
+                with self.subTest(specialist=specialist, changes=changes):
+                    entry = self.entry(specialist)
+                    entry.update(changes)
+                    self.assertTrue(reconciler.cross_family_review_pending(entry)[0])
+
+    def test_missing_invalid_or_unpinned_evidence_never_exempts(self) -> None:
+        for specialist in self.roles:
+            for field, value in (
+                ("review_subject_sha256", None), ("review_subject_sha256", "bad"),
+                ("review_state", "pending"), ("judged_state_mutation", "false"),
+            ):
+                with self.subTest(specialist=specialist, field=field, value=value):
+                    entry = self.entry(specialist)
+                    if value is None:
+                        del entry["verification_contract"][field]
+                    else:
+                        entry["verification_contract"][field] = value
+                    entry["verification_contract_sha256"] = verification_contract_sha256(
+                        entry["verification_contract"]
+                    )
+                    with self.assertRaises(dcb.DispatchContextError):
+                        dcb.validate_verification_contract(self.fields(entry))
+                    self.assertTrue(reconciler.cross_family_review_pending(entry)[0])
+            for bad_hash in (None, "0" * 64):
+                with self.subTest(specialist=specialist, bad_hash=bad_hash):
+                    entry = self.entry(specialist)
+                    entry["verification_contract_sha256"] = bad_hash
+                    self.assertTrue(reconciler.cross_family_review_pending(entry)[0])
 
 
 class ReviewEnforcementTest(unittest.TestCase):
@@ -847,18 +1005,25 @@ class ReviewEnforcementTest(unittest.TestCase):
 
     # ---- review-of-review regress and explicit control-plane settlement ---
     def test_p_read_only_reviewer_roles_do_not_require_review_of_review(self):
-        # skeptic is the claude-family member of the set: without it a
-        # codex-authored task has no anti-affinity-eligible verdict role.
+        # Drive actual reconciliation with pinned typed evidence, and then
+        # remove the evidence as the control for the former role-only exemption.
         for specialist in ("code-reviewer", "security-analyst", "skeptic"):
             for response_status in ("complete", "needs_review"):
-                with self.subTest(specialist=specialist, status=response_status):
-                    t = f"TASK-2026-07-15-0024-{specialist}-{response_status}"
-                    entry, queue = self.reconcile(
-                        {t: self._entry(specialist=specialist, write_scope=[])},
-                        self._own_response(t, "claude", response_status), t,
-                    )
-                    self.assertEqual(entry["status"], response_status)
-                    self.assertNotIn("REVIEW-REQUIRED", queue)
+                for typed in (True, False):
+                    with self.subTest(specialist=specialist, status=response_status, typed=typed):
+                        t = f"TASK-2026-07-15-0024-{specialist}-{response_status}-{typed}"
+                        task_entry = TypedReviewContractTests.entry(specialist, typed=typed)
+                        task_entry["id"] = t
+                        task_entry["verification_contract"]["task_id"] = t
+                        task_entry["verification_contract_sha256"] = verification_contract_sha256(
+                            task_entry["verification_contract"]
+                        )
+                        entry, queue = self.reconcile(
+                            {t: self._entry(**task_entry)},
+                            self._own_response(t, task_entry["to_model"], response_status), t,
+                        )
+                        self.assertEqual(entry["status"], response_status if typed else "review-required")
+                        self.assertEqual("REVIEW-REQUIRED" in queue, not typed)
 
     def test_q_review_of_review_exemption_is_narrow(self):
         cases = {

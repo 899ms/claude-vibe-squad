@@ -1,10 +1,14 @@
 #!/bin/bash
 # .githooks/pre-commit — tracked squad pre-commit hook (opt-in).
 #
-# Unlike .git/hooks/pre-commit (local, never reaches clones), this hook is
-# tracked. Enable it once per clone with:
+# This hook is TRACKED, which is exactly why you must not point Git at it
+# directly. Setting core.hooksPath to a tracked directory means any branch you
+# check out can execute its own code on your machine at your next commit, with
+# no merge and no review. Do not do it, and do not publish instructions to.
 #
-#   git config core.hooksPath .githooks
+# Install the reviewed guard OUTSIDE the worktree instead:
+#
+#   bash docs/install/install-pre-commit-hook.sh
 #
 # See docs/git-hooks.md. It runs, in order:
 #   0. private-memory leak guard (scripts/hooks/pre-commit; ALWAYS; blocking)

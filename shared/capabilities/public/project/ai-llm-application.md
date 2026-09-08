@@ -26,8 +26,8 @@ from `project/self-extension-agent-tooling`, which changes the squad's own agent
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall) |
 | **S1** Frame (requirements + research) | `product-manager`, `ai-engineer` | `codex --search` | `requirements-elicitation`, `scope-decomposition` | — |
 | **S2** Design (agent/RAG arch + eval criteria) | `architect`, `ai-engineer`, `prompt-engineer` | `sequential-thinking`, `context7` | `dependency-cycle-audit` | — |
-| **S3** Produce (build agents / RAG / tools) | `ai-engineer`, `backend-engineer`, `prompt-engineer` | `context7`, `chrono-vault` | `prompt-cache-discipline` | — |
-| **S4** Verify (eval harness — mocked / lane-model / opt-in live-model) | `test-engineer` | `DeepSeek API`, `DeepSeek context caching`, `xAI API` | `eval-harness-pattern`, `representative-workload-design` | opt-in metered (`default=false`, guarded) + `credential_change` for the live-model provider key |
+| **S3** Produce (build agents / RAG / tools) | `ai-engineer`, `backend-engineer`, `prompt-engineer` | `context7`, `chrono-vault` | — | — |
+| **S4** Verify (eval harness — mocked / lane-model / opt-in live-model) | `test-engineer` | `DeepSeek API`, `DeepSeek context caching`, `xAI API` | — | opt-in metered (`default=false`, guarded) + `credential_change` for the live-model provider key |
 | **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | `codex review`, `claude --from-pr` | — | review overlay (mandatory cross-family for routing / high-blast-radius changes) — review tools MECHANICS ONLY, never replacing the independent cross-family reviewer |
 | **S6** Ship/Deliver | `devops-engineer`, `technical-writer` | `plugin:github:github` | — | `production_mutation` (deploy) |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` | — | memory overlay (record) |

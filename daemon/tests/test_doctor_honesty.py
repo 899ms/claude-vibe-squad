@@ -13,9 +13,10 @@ here:
    still wrote healthy absence statements.
 
 The runs below are hermetic: doctor is pointed at a minimal VAULT_ROOT holding
-only itself and its two sourced helpers, so every subordinate checker is absent
-and answers from the could-not-determine path in milliseconds. No network, no
-CLI spawn, no write outside the temporary tree.
+itself, its required sourced helpers, and the installed leak guard. Optional
+subordinate checkers are absent and answer from the could-not-determine path.
+Required commands are stubbed using the existing doctor fixture helpers. No
+network, real lane CLI spawn, or write outside the temporary tree.
 
 `ps` is supplied by a stub in three modes, which is what makes "nothing found"
 a measurement rather than a silence:
@@ -39,6 +40,8 @@ import subprocess
 import tempfile
 import unittest
 
+from scripts.python.tests import doctor_fixture
+
 
 REPO = Path(__file__).resolve().parents[2]
 DOCTOR = REPO / "bin" / "doctor.sh"
@@ -47,6 +50,8 @@ DOCTOR = REPO / "bin" / "doctor.sh"
 HELPERS = (
     Path("bin") / "doctor-log-home.sh",
     Path("shared") / "repo-root.sh",
+    Path("shared") / "launch-dependencies.sh",
+    Path("shared") / "process-identity.sh",
 )
 VAULTROOT = REPO / "plugins" / "chrono-vault" / "vaultroot.py"
 
@@ -86,6 +91,8 @@ class DoctorHonestyTest(unittest.TestCase):
         ps_mode: str,
         lanes: tuple[str, ...] = (),
         with_vaultroot: bool = True,
+        with_guard: bool = True,
+        missing_lane: str | None = None,
     ) -> tuple[Path, dict[str, str]]:
         base = Path(tempfile.mkdtemp(prefix="vs-doctor-honesty."))
         self.addCleanup(shutil.rmtree, base, ignore_errors=True)
@@ -104,25 +111,29 @@ class DoctorHonestyTest(unittest.TestCase):
             (root / "plugins" / "chrono-vault").mkdir(parents=True)
             shutil.copy2(VAULTROOT, root / "plugins" / "chrono-vault" / "vaultroot.py")
 
-        # A real git repository that tracks nothing. `docs/brain-map.md` is then
-        # absent AND untracked here, which is exactly the shape of a public
-        # projection: the file was never carried, as opposed to lost.
-        subprocess.run(
-            ["git", "init", "-q"], cwd=root, check=True, capture_output=True
-        )
-
         home = base / "home"
         home.mkdir()
 
-        stub_dir = base / "stub-bin"
-        stub_dir.mkdir()
+        # Doctor prepends this directory itself. Keep process probes ahead of
+        # Homebrew too, so no run queries the operator's tmux server.
+        stub_dir = home / ".local" / "bin"
+        stub_dir.mkdir(parents=True)
+        doctor_fixture.stub_launch_dependencies(stub_dir, REPO, omit=missing_lane)
         stub = stub_dir / "ps"
         stub.write_text(_PS_DENY if ps_mode == "deny" else _PS_TABLE)
         stub.chmod(0o755)
+        tmux = stub_dir / "tmux"
+        tmux.write_text("#!/bin/bash\nexit 1\n")
+        tmux.chmod(0o755)
+        doctor_fixture.write_stub(stub_dir, "curl", "#!/bin/bash\nexit 7\n")
 
         for lane in lanes:
             planted = stub_dir / lane
-            planted.write_text(f"#!/bin/bash\nprintf 'stub-{lane} 9.9.9\\n'\n")
+            planted.write_text(
+                f"#!/bin/bash\n"
+                f"if [[ \"$1\" == --version ]]; then printf 'stub-{lane} 9.9.9\\n'; "
+                "else printf '%s\\n' \"${DOCTOR_TEST_AUTH_RESPONSE:-unrecognised}\"; fi\n"
+            )
             planted.chmod(0o755)
 
         environment = {
@@ -133,7 +144,24 @@ class DoctorHonestyTest(unittest.TestCase):
             "LANG": "C",
             "TMPDIR": str(base),
             "ROWS": _BUSY_ROW if ps_mode == "busy" else "",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "VIBESQUAD_STATUS_DIR": str(base / "status"),
         }
+        # No application activity or tracked private files, but README's
+        # required install path installs the guard BEFORE running doctor.
+        subprocess.run(
+            ["git", "init", "-q"], cwd=root, env=environment,
+            check=True, capture_output=True,
+        )
+        if with_guard:
+            guard = root / "scripts" / "hooks" / "pre-commit"
+            guard.parent.mkdir(parents=True)
+            shutil.copy2(REPO / "scripts" / "hooks" / "pre-commit", guard)
+            subprocess.run(
+                ["bash", str(REPO / "docs/install/install-pre-commit-hook.sh")],
+                cwd=root, env=environment, check=True, capture_output=True,
+            )
         return root, environment
 
     def _run(
@@ -142,9 +170,16 @@ class DoctorHonestyTest(unittest.TestCase):
         lanes: tuple[str, ...] = (),
         extra_env: dict[str, str] | None = None,
         with_vaultroot: bool = True,
+        with_guard: bool = True,
+        missing_lane: str | None = None,
+        hook_setup=None,
     ) -> tuple[int, str, dict]:
-        root, environment = self._fixture(ps_mode, lanes, with_vaultroot)
+        root, environment = self._fixture(
+            ps_mode, lanes, with_vaultroot, with_guard, missing_lane
+        )
         environment.update(extra_env or {})
+        if hook_setup is not None:
+            hook_setup(root)
         completed = subprocess.run(
             ["bash", str(root / "bin" / "doctor.sh")],
             env=environment,
@@ -256,13 +291,14 @@ class DoctorHonestyTest(unittest.TestCase):
 
     def test_zero_state_install_exits_zero(self):
         """The whole point: a clean machine is not a broken machine."""
-        status, _, summary = self._run("empty")
+        status, report, summary = self._run("empty")
         self.assertEqual(
             status,
             0,
             f"zero-state install exited {status}; issues={summary['issues']}",
         )
         self.assertEqual(summary["issue_count"], 0, summary["issues"])
+        self.assertIn("pre-commit hook health: OK", report)
         self.assertEqual(
             summary["gate_unknown_count"], 0, summary["gate_unknowns"]
         )
@@ -271,7 +307,6 @@ class DoctorHonestyTest(unittest.TestCase):
         self.assertGreater(summary["unknown_count"], 0)
         absent_inputs = " | ".join(summary["absent_inputs"])
         for expected in (
-            "token-bleed artifact scan has no source directories",
             "dispatch-log token-spend scan has no input",
             "dispatch completion scan has no archive targets",
             "inbox backlog scan has no inbox targets",
@@ -281,6 +316,27 @@ class DoctorHonestyTest(unittest.TestCase):
                 absent_inputs,
                 f"zero-state input was hidden instead of reported: {expected}",
             )
+
+        # A never-used installation still needs its guard. Both a missing
+        # install and a link back into mutable worktree code must fail closed.
+        def link_guard_to_worktree(root):
+            installed = root / ".git/hooks/vibe-squad-pre-commit"
+            installed.rename(installed.with_suffix(".snapshot"))
+            installed.symlink_to(root / "scripts/hooks/pre-commit")
+
+        for label, options in (
+            ("missing", {"with_guard": False}),
+            ("unsafe symlink", {"hook_setup": link_guard_to_worktree}),
+        ):
+            with self.subTest(guard=label):
+                status, report, summary = self._run("empty", **options)
+                self.assertEqual(status, 1)
+                self.assertIn(
+                    "managed pre-commit guard is missing, inactive, or unsafe",
+                    summary["issues"],
+                )
+                self.assertIn("pre-commit hook health: BROKEN", report)
+                self.assertNotIn("pre-commit hook health: OK", report)
 
     def test_unconfigured_optional_state_warns_rather_than_fails(self):
         _, _, summary = self._run("empty")
@@ -332,9 +388,15 @@ class DoctorHonestyTest(unittest.TestCase):
             "the planted claude was not reported as this HOME's install",
         )
 
-        # A lane absent from this HOME's PATH must be reported absent, never
-        # borrowed from elsewhere. `kimi` is planted nowhere in the fixture.
-        _, bare_report, bare_summary = self._run("empty")
+        # Positive control: the ordinary install has a reachable kimi stub.
+        _, installed_report, _ = self._run("empty")
+        self.assertTrue(any("kimi: " in line for line in _healthy_lines(installed_report)))
+        # Missing a required lane is incomplete setup and must fail the launch
+        # dependency gate, as well as naming the lane in its warning section.
+        bare_status, bare_report, bare_summary = self._run("empty", missing_lane="kimi")
+        self.assertEqual(bare_status, 1)
+        self.assertTrue(any("missing launch dependencies: kimi" in issue
+                            for issue in bare_summary["issues"]))
         self.assertIn(
             "kimi CLI not installed for this HOME",
             " | ".join(bare_summary["warnings"]),
@@ -367,12 +429,26 @@ class DoctorHonestyTest(unittest.TestCase):
         )
 
     def test_auth_class_is_not_reported_as_an_auth_result(self):
-        _, report, summary = self._run("empty")
-        self.assertTrue(
-            any("authentication state is not verified" in u for u in summary["unknowns"]),
-            f"authentication was not reported as undetermined: {summary['unknowns']}",
-        )
-        self.assertIn("NOT VERIFIED for any lane", report)
+        # Doctor now probes individual lanes. A policy class by itself remains
+        # insufficient evidence; a recognised login answer is the control.
+        for answer, authenticated in (
+            ("subscription", False),
+            ("Logged in using ChatGPT", True),
+        ):
+            with self.subTest(answer=answer):
+                _, report, summary = self._run(
+                    "empty", lanes=("codex",),
+                    extra_env={"DOCTOR_TEST_AUTH_RESPONSE": answer},
+                )
+                self.assertEqual(
+                    "codex auth state could not be read" in summary["unknowns"],
+                    not authenticated,
+                )
+                self.assertEqual(
+                    any("codex: Logged in using ChatGPT" in line
+                        for line in _healthy_lines(report)),
+                    authenticated,
+                )
 
 
 def _healthy_lines(report: str) -> list[str]:

@@ -19,31 +19,44 @@ You need:
 brew install jq tmux fswatch
 ```
 
-All five provider CLIs are required — `bin/squad up` exits 1 if any is missing:
+All five provider CLIs are required — `bin/squad up` exits 1 if any is missing.
+Three have a one-line install:
 
 ```bash
 curl -fsSL https://claude.ai/install.sh | bash   # claude
 npm install -g @openai/codex                     # codex
-# install Antigravity's agy CLI from its provider distribution
-# install the grok CLI from the xAI provider distribution
-uv tool install kimi-cli                         # kimi
+uv tool install kimi-cli                          # kimi
 ```
 
-Claude, Codex, Gemini-through-agy, Grok, and Kimi authenticate through their
-supported subscription, OAuth, or managed-login paths. `GEMINI_API_KEY` is not
-Gemini lane authentication. Model inference always runs through those native
-CLIs, never through an MCP server.
+The other two have no package-manager install and must be obtained from their
+vendors:
+
+- `agy` is Antigravity's CLI, distributed by Google as a standalone binary
+  (Antigravity: <https://antigravity.google>). There is no Homebrew, npm, or `uv`
+  package — download the binary and put it on your `PATH`.
+- `grok` is xAI's Grok CLI. There is no confirmed one-line public package
+  command; obtain it from xAI and put it on your `PATH`.
+
+Both are mandatory: because `bin/squad up` refuses to launch until all five CLIs
+resolve, there is no partial-lane path past the dependency gate. Per-CLI
+installation and authentication detail is in
+[Provider CLIs](install/provider-clis.md).
+
+Claude, Codex, Gemini-through-agy, and Kimi authenticate through their supported
+subscription, OAuth, or managed-login paths. The Grok board lane is the exception:
+it requires an xAI API key (`model-lanes/lane-capabilities.tsv` declares
+`xai-api-key-only`). `GEMINI_API_KEY` is not Gemini lane authentication. Model
+inference always runs through those native CLIs, never through an MCP server.
 
 Per-CLI authentication steps, postcondition checks, and the `PATH` gotcha for
 `claude` and `kimi` are in [Provider CLIs](install/provider-clis.md).
 
-Check before moving on:
+Check the core tools before moving on. The full required-command set, including
+the five CLIs, is verified against the repo's authoritative list right after you
+clone in step 2 — that check needs the repository, so it cannot run here yet:
 
 ```bash
-source shared/launch-dependencies.sh
-for dep in "${SQUAD_REQUIRED_COMMANDS[@]}"; do
-  command -v "$dep" >/dev/null 2>&1 || echo "MISSING: $dep"
-done
+for t in tmux fswatch jq curl uv; do command -v "$t" >/dev/null 2>&1 || echo "MISSING: $t"; done
 ```
 
 ## 2. Clone the repository
@@ -56,6 +69,16 @@ uv sync
 
 `uv sync` creates the local Python environment used by optional utility
 integrations and repository checks.
+
+Now that the repository is present, verify the full required-command set against
+its authoritative list, run from the repo root:
+
+```bash
+source shared/launch-dependencies.sh
+for dep in "${SQUAD_REQUIRED_COMMANDS[@]}"; do
+  command -v "$dep" >/dev/null 2>&1 || echo "MISSING: $dep"
+done
+```
 
 ## 3. Create the private memory vault
 
@@ -136,6 +159,31 @@ bash bin/install-routines.sh --daemon-only   # just com.vibesquad.daemon
 bash bin/install-routines.sh                 # daemon + the optional routines (docs/install/daemon.md)
 bash bin/install-routines.sh --status
 ```
+
+**Before installing, know what these agents run.** Each plist is rendered to
+execute code from your checkout on every launch, with no immutable snapshot — so
+checking out a branch you have not reviewed, a fork's pull request above all, in a
+clone where they are loaded runs that branch's code as your user.
+`com.vibesquad.daemon` and `com.claudevibesquad.nightly` first source your entire
+`$HOME/.config/shell/secrets.zsh`, and `com.vibesquad.chrome` owns your
+authenticated Chrome (CDP on `127.0.0.1:9222`, no auth), so that execution carries
+your credentials and logged-in sessions, not just your file access.
+`com.chrono.squad-monitor` re-runs its checkout script **every 120 seconds**, so
+the realistic window is about two minutes, not a restart or an overnight wait. The
+installer manages three agents, but `com.chrono.squad-monitor` and
+`com.vibesquad.chrome` are installed by no repository command and never appear in
+`--status`. Unload whichever agents you have loaded before the checkout, then
+reload afterwards — this leaves the plist in place, it is not an uninstall:
+
+```bash
+launchctl bootout gui/$(id -u)/<label>                                       # unload
+launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/<label>.plist"  # reload
+```
+
+The [daemon guide](install/daemon.md#security-every-listed-agent-runs-code-from-your-checkout)
+is the canonical list of every label, its cadence, and which the installer can
+manage versus which you must handle by hand. A fix separating the installed code
+root from the live data root is planned.
 
 What `com.vibesquad.daemon` adds, and nothing else does:
 

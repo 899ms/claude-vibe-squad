@@ -2,8 +2,8 @@
 """Global delegation-lineage cap and authority intersection (V2 Task 2.4, F5).
 
 This closes the exact gap found in the cross-family review of the
-specialist-delegation/v1 spec (held TASK-2026-07-21-1425, settled
-APPROVE-WITH-CHANGES by TASK-2026-07-21-1445): the spec's per-parent
+specialist-delegation/v1 spec (held TASK-2099-01-01-0005-example-delegation-spec, settled
+APPROVE-WITH-CHANGES by TASK-2099-01-01-0006-example-delegation-review): the spec's per-parent
 ``<=3 delegations`` cap resets on every cross-lane hop, because each hop is
 dispatched as an ordinary fresh task with its own budget and cycle-ledger.
 A chain P -> T1 -> T2 -> ... can fan out unboundedly even though every

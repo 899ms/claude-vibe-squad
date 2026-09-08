@@ -63,7 +63,7 @@ GEMINI_GENERATED_ROLES = (
 )
 KIMI_GENERATED_ROLES: tuple[str, ...] = ()
 GROK_GENERATED_ROLES = ("smokey",)
-ADVISOR_GENERATED_ROLES = ("fable", "sol")
+ADVISOR_GENERATED_ROLES = ("ichigo", "exodia")
 SWARM_CRITICAL_ROLES = (
     "exploit-developer",
     "security-analyst",

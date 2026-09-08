@@ -66,7 +66,7 @@ Model binding is per specialist. These are the CLIs a specialist row can be boun
 | `claude` | Anthropic | judgment, safety review, privacy/auth reasoning, memory hygiene, adversarial challenge |
 | `gemini` (`agy` executable) | Google | multimodal analysis, media generation routes, visual/design review, grounded content |
 | `kimi` | Moonshot | two allowlisted primaries (`summarizer`, `kestrel`); otherwise throughput-only bulk/mechanical work under an explicit downshift gate |
-| `grok` | xAI | one primary (`smokey`, the blank advisor); escalate route for `research` and `bounty-researcher`. Native X/Twitter search under a SuperGrok subscription. `read_file` hard-fails past ~25k tokens — large documents need shell or paged ingest |
+| `grok` | xAI | one primary (`smokey`, the blank advisor); escalate route for `research` and `bounty-researcher`. Board launch requires API-key authority and has native web search disabled; `shared/routing.md` § Grok board launch constraints owns that policy. `read_file` hard-fails past ~25k tokens — large documents need shell or paged ingest |
 
 ## Dispatch Algorithm
 
@@ -74,23 +74,22 @@ Model binding is per specialist. These are the CLIs a specialist row can be boun
 2. Chrono selects the canonical specialist.
 3. Chrono looks up the `primary_lane`/profile, independent `review_lane`/profile, `source_namespace`, safety/tool constraints, and versioned policies in `shared/specialist-runtime-map.tsv`.
 4. Chrono assigns one write owner for each path in `write_scope`.
-5. Chrono adds read-only review when `mandatory_review:true` or when the task class is high risk.
+5. Chrono adds read-only review when the packet's `review_triggers` list is non-empty (`mandatory_review: true`); see Mandatory Review below.
 6. The board spawns a fresh CLI for that specialist in its own git worktree; it executes the specialist brief only and does not become an independent controller.
 7. Chrono gathers results, resolves conflicts, and speaks to the operator.
 
-## Mandatory Review Classes
+## Mandatory Review
 
-Mandatory multi-model review is required for:
+`mandatory_review` is a per-packet property, not a property of the specialist or
+the content class. It is true exactly when the packet's `review_triggers` list is
+non-empty; `safety_level` and content or severity categories never manufacture a
+change-level review. The trigger vocabulary and the single distinct-family review
+rule have one home — `shared/protocol.md` § Mandatory Review Behavior — and are
+not restated here (root `CLAUDE.md` Hard Rule 10).
 
-- security findings and bounty reports
-- privacy/PII and data-flow decisions
-- auth, credential, or secret-handling changes
-- email/outreach sending
-- public release changes
-- filesystem cleanup or deletion proposals
-- high-blast-radius architecture or runtime changes
-
-Reviewers are read-only unless Chrono serializes a later write pass.
+When a packet carries a non-empty trigger list, Chrono routes a separate reviewer
+from a different provider family after the response lands. Reviewers are read-only
+unless Chrono serializes a later write pass.
 
 ## Compatibility Policy
 

@@ -1,5 +1,5 @@
 ---
-specialist: fable
+specialist: ichigo
 version: 2.0
 department: shared
 safety_level: medium
@@ -7,9 +7,9 @@ requires_approval: []
 tags: []
 ---
 
-# Specialist: Fable
+# Specialist: Ichigo
 
-The fable second opinion: a persona-blank, neutral advisor that gives an independent and honest view without a domain agenda, implementation bias, or house style.
+The ichigo second opinion: a persona-blank, neutral advisor that gives an independent and honest view without a domain agenda, implementation bias, or house style.
 
 ## Tools available to me
 

@@ -48,6 +48,7 @@ ACTIVE_MARKER = "**IN PROGRESS — Chrono**"
 TERMINAL_KINDS = frozenset({"complete", "archive", "drop"})
 COMPACTION_KIND = "compact"
 ADOPTION_KIND = "adopt"
+IDLE_KIND = "idle"
 NONTERMINAL_KINDS = frozenset(
     {
         "start",
@@ -59,6 +60,7 @@ NONTERMINAL_KINDS = frozenset(
         "restart",
         COMPACTION_KIND,
         ADOPTION_KIND,
+        IDLE_KIND,
     }
 )
 EVENT_KINDS = TERMINAL_KINDS | NONTERMINAL_KINDS
@@ -149,6 +151,26 @@ _REQUIRED_FIELD_VARIANTS = {
     "drop": (
         frozenset({"work_id", "summary", "why"}),
         frozenset({"request_id", "summary", "why"}),
+        frozenset(
+            {
+                "work_id",
+                "summary",
+                "why",
+                "successor_work_id",
+                "next_action",
+            }
+        ),
+        frozenset(
+            {"request_id", "summary", "why", "successor_id", "next_action"}
+        ),
+        frozenset({"work_id", "summary", "why", "focus_state"}),
+        frozenset({"request_id", "summary", "why", "focus_state"}),
+        frozenset(
+            {"work_id", "summary", "why", "waiting_work_id", "resume_action"}
+        ),
+        frozenset(
+            {"request_id", "summary", "why", "waiting_id", "resume_action"}
+        ),
     ),
     "switch": (
         frozenset({"work_id", "next_action"}),
@@ -161,12 +183,35 @@ _REQUIRED_FIELD_VARIANTS = {
     "block": (
         frozenset({"work_id", "resume_action"}),
         frozenset({"item_id", "resume_action"}),
+        frozenset({"work_id", "resume_action", "successor_work_id", "next_action"}),
+        frozenset({"item_id", "resume_action", "successor_id", "next_action"}),
+        frozenset({"work_id", "resume_action", "focus_state"}),
+        frozenset({"item_id", "resume_action", "focus_state"}),
     ),
-    "complete": (frozenset({"work_id"}), frozenset({"item_id"})),
-    "archive": (frozenset({"work_id"}), frozenset({"item_id"})),
+    "complete": (
+        frozenset({"work_id"}),
+        frozenset({"item_id"}),
+        frozenset({"work_id", "successor_work_id", "next_action"}),
+        frozenset({"item_id", "successor_id", "next_action"}),
+        frozenset({"work_id", "focus_state"}),
+        frozenset({"item_id", "focus_state"}),
+        frozenset({"work_id", "waiting_work_id", "resume_action"}),
+        frozenset({"item_id", "waiting_id", "resume_action"}),
+    ),
+    "archive": (
+        frozenset({"work_id"}),
+        frozenset({"item_id"}),
+        frozenset({"work_id", "successor_work_id", "next_action"}),
+        frozenset({"item_id", "successor_id", "next_action"}),
+        frozenset({"work_id", "focus_state"}),
+        frozenset({"item_id", "focus_state"}),
+        frozenset({"work_id", "waiting_work_id", "resume_action"}),
+        frozenset({"item_id", "waiting_id", "resume_action"}),
+    ),
     "restart": (frozenset(),),
     COMPACTION_KIND: (frozenset(),),
     ADOPTION_KIND: (frozenset({"source_event_id", "work_id", "alias"}),),
+    IDLE_KIND: (frozenset(),),
 }
 
 
@@ -251,6 +296,8 @@ class WorkboardProjection:
     active_work_id: str | None
     active_item_id: str | None
     next_action: str | None
+    idle: bool
+    waiting_work_id: str | None
     terminal_work_ids: frozenset[str]
     terminal_ids: frozenset[str]
     known_work_ids: frozenset[str]
@@ -474,18 +521,35 @@ def _event_schema_issues(event: WorkEvent) -> list[str]:
         issues.append(
             f"line {event.line_number}: {event.kind} has blank fact(s): {', '.join(blank)}"
         )
-    for key in ("item_id", "request_id", "target_id", "alias"):
+    for key in (
+        "item_id",
+        "request_id",
+        "target_id",
+        "successor_id",
+        "waiting_id",
+        "alias",
+    ):
         value = event.fields.get(key)
         if value and (len(value) > MAX_ID_CHARS or not _ITEM_ID_RE.fullmatch(value)):
             issues.append(
                 f"line {event.line_number}: {key} is not a valid work alias: {value!r}"
             )
-    for key in ("work_id", "target_work_id"):
+    for key in (
+        "work_id",
+        "target_work_id",
+        "successor_work_id",
+        "waiting_work_id",
+    ):
         value = event.fields.get(key)
         if value and not _WORK_ID_RE.fullmatch(value):
             issues.append(
                 f"line {event.line_number}: {key} is not an opaque work id: {value!r}"
             )
+    focus_state = event.fields.get("focus_state")
+    if focus_state is not None and focus_state != "idle":
+        issues.append(
+            f"line {event.line_number}: focus_state must be exactly 'idle'"
+        )
     try:
         parsed = datetime.fromisoformat(event.at.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
@@ -508,6 +572,8 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
     rejected_openings: dict[str, tuple[WorkEvent, str, str, str]] = {}
     seen_events: set[str] = set()
     issues: list[str] = []
+    idle = False
+    waiting_work_id: str | None = None
 
     def transition_issue(record, message: str) -> None:
         issues.append(f"line {record.line_number}: {message}")
@@ -528,6 +594,102 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
             return work_id, aliases_by_work_id.get(work_id, work_id)
         alias = fields["item_id"]
         return _legacy_work_id(alias), alias
+
+    def optional_identity(
+        fields: Mapping[str, str], work_key: str, alias_key: str
+    ) -> tuple[str, str] | None:
+        if work_key in fields:
+            work_id = fields[work_key]
+            return work_id, aliases_by_work_id.get(work_id, work_id)
+        if alias_key in fields:
+            alias = fields[alias_key]
+            return _legacy_work_id(alias), alias
+        return None
+
+    def activate(
+        record: WorkEvent,
+        target: str,
+        target_display: str,
+        next_action: str,
+        index: int,
+    ) -> bool:
+        nonlocal idle, waiting_work_id
+        item = items.get(target)
+        if item is None:
+            transition_issue(record, f"successor {target_display} is not open")
+            return False
+        for open_id, open_item in tuple(items.items()):
+            if open_id != target and open_item.state in {"active", "waiting"}:
+                items[open_id] = replace(open_item, state="queued")
+        items[target] = replace(
+            item,
+            state="active",
+            resume_action=next_action,
+            last_event_id=record.event_id,
+            last_index=index,
+        )
+        idle = False
+        waiting_work_id = None
+        return True
+
+    def declare_idle(record: WorkEvent, index: int) -> None:
+        nonlocal idle, waiting_work_id
+        for open_id, open_item in tuple(items.items()):
+            if open_item.state in {"active", "waiting"}:
+                items[open_id] = replace(
+                    open_item,
+                    state="queued",
+                    last_event_id=record.event_id,
+                    last_index=index,
+                )
+        idle = True
+        waiting_work_id = None
+
+    def declare_waiting(
+        record: WorkEvent,
+        target: str,
+        target_display: str,
+        resume_action: str,
+        index: int,
+    ) -> bool:
+        nonlocal idle, waiting_work_id
+        item = items.get(target)
+        if item is None:
+            transition_issue(record, f"waiting target {target_display} is not open")
+            return False
+        # Parking focus does not clear an external obstruction or replace the
+        # target's unblock action with another item's pause reason.
+        if item.state == "blocked":
+            resume_action = item.resume_action
+        for open_id, open_item in tuple(items.items()):
+            if open_id != target and open_item.state in {"active", "waiting"}:
+                items[open_id] = replace(open_item, state="queued")
+        items[target] = replace(
+            item,
+            state="blocked" if item.state == "blocked" else "waiting",
+            resume_action=resume_action,
+            last_event_id=record.event_id,
+            last_index=index,
+        )
+        idle = False
+        waiting_work_id = target
+        return True
+
+    def apply_atomic_focus(
+        record: WorkEvent, fields: Mapping[str, str], index: int
+    ) -> bool:
+        successor = optional_identity(fields, "successor_work_id", "successor_id")
+        if successor is not None:
+            return activate(record, *successor, fields["next_action"], index)
+        if fields.get("focus_state") == "idle":
+            declare_idle(record, index)
+            return True
+        waiting = optional_identity(fields, "waiting_work_id", "waiting_id")
+        if waiting is not None:
+            return declare_waiting(
+                record, *waiting, fields["resume_action"], index
+            )
+        return True
 
     for index, record in enumerate(document.records):
         if isinstance(record, LegacyItem):
@@ -586,6 +748,12 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_event_id=record.event_id,
                 last_index=index,
             )
+            if waiting_work_id is not None and waiting_work_id in items:
+                waiting_item = items[waiting_work_id]
+                if waiting_item.state == "waiting":
+                    items[waiting_work_id] = replace(waiting_item, state="queued")
+            idle = False
+            waiting_work_id = None
         elif kind == "queue":
             work_id, alias, display_id = opening_identity(record)
             if work_id in known_work_ids or work_id in disposed_requests:
@@ -646,34 +814,32 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
             if request_id in items:
                 # DROP may be the initial disposition or a later terminal
                 # disposition for a previously queued interruption.
+                removed = items[request_id]
                 del items[request_id]
                 terminal_work_ids.add(request_id)
-                terminal_aliases.add(request_alias)
-                continue
-            if request_id in terminal_work_ids or request_id in disposed_requests:
+                terminal_aliases.add(removed.alias)
+                if removed.state == "active" or waiting_work_id == request_id:
+                    idle = False
+                    waiting_work_id = None
+                if not apply_atomic_focus(record, fields, index):
+                    continue
+            elif request_id in terminal_work_ids or request_id in disposed_requests:
                 transition_issue(record, f"drop reuses work id {request_alias}")
                 continue
-            known_work_ids.add(request_id)
-            aliases_by_work_id[request_id] = request_alias
-            disposed_requests.add(request_id)
-            terminal_work_ids.add(request_id)
-            terminal_aliases.add(request_alias)
+            else:
+                known_work_ids.add(request_id)
+                aliases_by_work_id[request_id] = request_alias
+                disposed_requests.add(request_id)
+                terminal_work_ids.add(request_id)
+                terminal_aliases.add(request_alias)
+                if not apply_atomic_focus(record, fields, index):
+                    continue
         elif kind == "switch":
             target, target_display = target_identity(fields)
-            item = items.get(target)
-            if item is None:
-                transition_issue(record, f"switch target {target_display} is not open")
+            if not activate(
+                record, target, target_display, fields["next_action"], index
+            ):
                 continue
-            for active_id, active in tuple(items.items()):
-                if active.state == "active" and active_id != target:
-                    items[active_id] = replace(active, state="queued")
-            items[target] = replace(
-                item,
-                state="active",
-                resume_action=fields["next_action"],
-                last_event_id=record.event_id,
-                last_index=index,
-            )
         elif kind == "advance":
             target, target_display = target_identity(fields)
             item = items.get(target)
@@ -694,6 +860,7 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
             if item is None:
                 transition_issue(record, f"block target {target_display} is not open")
                 continue
+            was_active = item.state == "active"
             items[target] = replace(
                 item,
                 state="blocked",
@@ -701,14 +868,35 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_event_id=record.event_id,
                 last_index=index,
             )
+            has_atomic_focus = any(
+                key in fields
+                for key in (
+                    "successor_work_id",
+                    "successor_id",
+                    "focus_state",
+                )
+            )
+            if has_atomic_focus:
+                if not apply_atomic_focus(record, fields, index):
+                    continue
+            elif was_active:
+                idle = False
+                waiting_work_id = target
         elif kind in {"complete", "archive"}:
             target, target_display = target_identity(fields)
-            if target not in items:
+            item = items.get(target)
+            if item is None:
                 transition_issue(record, f"{kind} target {target_display} is not open")
                 continue
-            terminal_aliases.add(items[target].alias)
+            removed_focus = item.state == "active" or waiting_work_id == target
+            terminal_aliases.add(item.alias)
             del items[target]
             terminal_work_ids.add(target)
+            if removed_focus:
+                idle = False
+                waiting_work_id = None
+            if not apply_atomic_focus(record, fields, index):
+                continue
         elif kind == ADOPTION_KIND:
             source_event_id = fields["source_event_id"]
             rejected = rejected_openings.get(source_event_id)
@@ -749,8 +937,19 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_event_id=record.event_id,
                 last_index=index,
             )
+            if source_kind == "start":
+                if waiting_work_id is not None and waiting_work_id in items:
+                    waiting_item = items[waiting_work_id]
+                    if waiting_item.state == "waiting":
+                        items[waiting_work_id] = replace(
+                            waiting_item, state="queued"
+                        )
+                idle = False
+                waiting_work_id = None
             issues.remove(source_issue)
             del rejected_openings[source_event_id]
+        elif kind == IDLE_KIND:
+            declare_idle(record, index)
         elif kind in {"restart", COMPACTION_KIND}:
             # Context boundaries are recorded facts, never state transitions.
             continue
@@ -774,6 +973,8 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
         active_work_id=active_work_id,
         active_item_id=active_id,
         next_action=next_action,
+        idle=idle,
+        waiting_work_id=waiting_work_id,
         terminal_work_ids=frozenset(terminal_work_ids),
         terminal_ids=frozenset(terminal_aliases),
         known_work_ids=frozenset(known_work_ids),
@@ -800,18 +1001,37 @@ def validate_workboard(
     # The strict facts apply to the event spine. Legacy checkbox rows remain
     # readable for rollback evidence, but they are not silently upgraded into
     # claims the old format cannot prove.
-    if document.has_structured_events and view.items:
+    if document.has_structured_events:
         active = [item for item in view.items if item.state == "active"]
-        if len(active) != 1:
+        declared_pause = view.idle or view.waiting_work_id is not None
+        if len(active) > 1 or (len(active) == 1 and declared_pause):
             issues.append(
-                f"structured workboard must project exactly one active item; found {len(active)}"
+                "structured workboard must project exactly one active item; "
+                f"found {len(active)}"
             )
-        if not view.next_action:
+        elif not active and not declared_pause:
+            issues.append(
+                "structured workboard must project exactly one active item; found 0"
+            )
+        if active and not view.next_action:
             issues.append(
                 "structured workboard must project exactly one literal next_action"
             )
-        elif not view.next_action.strip():
+        elif view.next_action is not None and not view.next_action.strip():
             issues.append("projected next_action must not be blank")
+        if view.idle and view.waiting_work_id is not None:
+            issues.append("workboard cannot declare both idle and waiting")
+        if view.waiting_work_id is not None:
+            waiting = [
+                item
+                for item in view.items
+                if item.work_id == view.waiting_work_id
+                and item.state in {"waiting", "blocked"}
+            ]
+            if len(waiting) != 1:
+                issues.append(
+                    "declared waiting focus must identify exactly one open work_id"
+                )
         for item in view.items:
             if item.work_id in view.terminal_work_ids:
                 issues.append(f"terminal item {item.alias} also appears open")
@@ -1088,6 +1308,19 @@ def _normalize_append_facts(
     normalized = dict(facts)
     declared = _declared_work_ids(document, projection)
 
+    def resolve_related(alias_key: str, work_key: str) -> None:
+        alias = normalized.get(alias_key)
+        if alias is None:
+            return
+        if work_key in normalized:
+            raise WorkboardConsistencyError(
+                f"pass either {alias_key} as an alias or {work_key}, not both"
+            )
+        work_id = _open_work_id_for_alias(projection, alias)
+        if work_id is not None and _WORK_ID_RE.fullmatch(work_id):
+            del normalized[alias_key]
+            normalized[work_key] = work_id
+
     if kind in {"start", "queue"}:
         legacy_alias = normalized.pop("item_id", None)
         alias = normalized.get("alias")
@@ -1152,6 +1385,8 @@ def _normalize_append_facts(
             if work_id is not None and _WORK_ID_RE.fullmatch(work_id):
                 del normalized["item_id"]
                 normalized["work_id"] = work_id
+        resolve_related("successor_id", "successor_work_id")
+        resolve_related("waiting_id", "waiting_work_id")
         return normalized
 
     if kind == "fold" and "target_id" in normalized:
@@ -1166,6 +1401,13 @@ def _normalize_append_facts(
         if target is not None and _WORK_ID_RE.fullmatch(target):
             del normalized["request_id"]
             normalized["work_id"] = target
+        resolve_related("successor_id", "successor_work_id")
+        resolve_related("waiting_id", "waiting_work_id")
+        return normalized
+
+    if kind == "drop":
+        resolve_related("successor_id", "successor_work_id")
+        resolve_related("waiting_id", "waiting_work_id")
         return normalized
 
     return normalized
@@ -1199,6 +1441,12 @@ def _event_is_reflected(
         return False
     if event.kind in {"restart", COMPACTION_KIND}:
         return True
+    if event.kind == IDLE_KIND:
+        return (
+            after.idle
+            and after.waiting_work_id is None
+            and after.active_work_id is None
+        )
 
     target = _event_target_work_id(event)
     if target is None:
@@ -1212,19 +1460,84 @@ def _event_is_reflected(
         ADOPTION_KIND,
         "switch",
         "advance",
-        "block",
         "fold",
     }:
         return after_item is not None and after_item.last_event_id == event.event_id
+    if event.kind == "block":
+        if (
+            after_item is None
+            or after_item.state != "blocked"
+            or after_item.last_event_id != event.event_id
+        ):
+            return False
+        successor = event.fields.get("successor_work_id")
+        if successor is None and "successor_id" in event.fields:
+            successor = _legacy_work_id(event.fields["successor_id"])
+        if successor is not None:
+            successor_item = next(
+                (item for item in after.items if item.work_id == successor), None
+            )
+            return (
+                successor_item is not None
+                and successor_item.state == "active"
+                and successor_item.last_event_id == event.event_id
+            )
+        if event.fields.get("focus_state") == "idle":
+            return after.idle and after.active_work_id is None
+        waiting = event.fields.get("waiting_work_id")
+        if waiting is None and "waiting_id" in event.fields:
+            waiting = _legacy_work_id(event.fields["waiting_id"])
+        if waiting is not None:
+            waiting_item = next(
+                (item for item in after.items if item.work_id == waiting), None
+            )
+            return (
+                after.waiting_work_id == waiting
+                and waiting_item is not None
+                and waiting_item.state in {"waiting", "blocked"}
+                and waiting_item.last_event_id == event.event_id
+            )
+        return True
     if event.kind in {"complete", "archive"}:
-        return (
+        terminal_reflected = (
             before_item is not None
             and after_item is None
             and target in after.terminal_work_ids
         )
-    if event.kind == "drop":
-        return after_item is None and target in after.terminal_work_ids
-    return False
+    elif event.kind == "drop":
+        terminal_reflected = after_item is None and target in after.terminal_work_ids
+    else:
+        return False
+    if not terminal_reflected:
+        return False
+    successor = event.fields.get("successor_work_id")
+    if successor is None and "successor_id" in event.fields:
+        successor = _legacy_work_id(event.fields["successor_id"])
+    if successor is not None:
+        successor_item = next(
+            (item for item in after.items if item.work_id == successor), None
+        )
+        return (
+            successor_item is not None
+            and successor_item.state == "active"
+            and successor_item.last_event_id == event.event_id
+        )
+    if event.fields.get("focus_state") == "idle":
+        return after.idle and after.active_work_id is None
+    waiting = event.fields.get("waiting_work_id")
+    if waiting is None and "waiting_id" in event.fields:
+        waiting = _legacy_work_id(event.fields["waiting_id"])
+    if waiting is not None:
+        waiting_item = next(
+            (item for item in after.items if item.work_id == waiting), None
+        )
+        return (
+            after.waiting_work_id == waiting
+            and waiting_item is not None
+            and waiting_item.state in {"waiting", "blocked"}
+            and waiting_item.last_event_id == event.event_id
+        )
+    return True
 
 
 def _added_issues(before: tuple[str, ...], after: tuple[str, ...]) -> tuple[str, ...]:
@@ -1345,12 +1658,19 @@ def append_event(
                 raise WorkboardConsistencyError(
                     "append rejected: candidate event did not parse from the simulated document"
                 )
-            if not _event_is_reflected(before_projection, after_projection, candidate):
-                added = _added_issues(before_issues, after_issues)
-                detail = "; ".join(added) or "projection postcondition failed"
+            added = _added_issues(before_issues, after_issues)
+            if added:
+                raise WorkboardConsistencyError(
+                    f"append rejected: {candidate.event_id} ({candidate.kind}) "
+                    "introduced issue(s): "
+                    + "; ".join(added)
+                )
+            if not _event_is_reflected(
+                before_projection, after_projection, candidate
+            ):
                 raise WorkboardConsistencyError(
                     f"append rejected: {candidate.event_id} was not reflected as "
-                    f"{candidate.kind}; added issue(s): {detail}"
+                    f"{candidate.kind}; projection postcondition failed"
                 )
             if fd is None:
                 fd = os.open(
@@ -1990,6 +2310,25 @@ def render_resume_rows(rows, show_detail: bool) -> list[str]:
     """Render the one prominence projection into the bounded resume block."""
     projection = rows.projection if isinstance(rows, ResumeRows) else None
     real_count = len(projection.items) if projection is not None else len(rows)
+    focus_pause = None
+    if projection is not None and projection.document.has_structured_events:
+        if projection.idle:
+            focus_pause = "- focus: idle (no commitment)"
+        elif projection.waiting_work_id is not None:
+            waiting = next(
+                (
+                    item
+                    for item in projection.items
+                    if item.work_id == projection.waiting_work_id
+                ),
+                None,
+            )
+            if waiting is not None:
+                pause_state = "blocked" if waiting.state == "blocked" else "waiting"
+                focus_pause = (
+                    f"- focus: {pause_state} on {waiting.alias} — "
+                    f"{_clip(waiting.resume_action or '', ACTION_CLIP)}"
+                )
     if not show_detail:
         collapsed = []
         if projection is not None and projection.issues:
@@ -1998,6 +2337,8 @@ def render_resume_rows(rows, show_detail: bool) -> list[str]:
                 + _clip("; ".join(projection.issues), SUMMARY_CLIP)
                 + " [OPEN-WORK]"
             )
+        if focus_pause is not None:
+            collapsed.append(focus_pause)
         if (
             projection is not None
             and projection.document.has_structured_events
@@ -2033,7 +2374,7 @@ def render_resume_rows(rows, show_detail: bool) -> list[str]:
     else:
         selected_rows = [(*row, None) for row in list(rows)[:MAX_PROJECTED_ITEMS]]
 
-    lines: list[str] = []
+    lines: list[str] = [focus_pause] if focus_pause is not None else []
     structured = bool(
         projection is not None and projection.document.has_structured_events
     )

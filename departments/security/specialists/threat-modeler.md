@@ -77,9 +77,9 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 At the S2 design step of every bounty card I anchor the model to the operator depth standard, not a generic STRIDE sweep:
 
-- **Dedicated novel-attack ideation pass every engagement (distance is the FLOOR).** Beyond the known catalog I run a deliberate novel-hypothesis pass and use `attack-coverage-map` to prove the surface is covered, not just the obvious sinks. Bold hypotheses feed `experimental-attacker`'s broad fan-out; they re-enter the verification spine and stay leads until reproduced.
+- **Dedicated novel-attack ideation pass every engagement (distance is the FLOOR).** Beyond the known catalog I run a deliberate novel-hypothesis pass to prove the surface is covered, not just the obvious sinks. Bold hypotheses feed `experimental-attacker`'s broad fan-out; they re-enter the verification spine and stay leads until reproduced.
 - **New attack-class instincts to seed the model (2025-26).** SC: ERC-1271 revert-data confusion, ECDSA-fallback / precompile-shadow signature bypass, Uniswap-v4 hook access control, read-only reentrancy, Solana durable-nonce, cross-chain single-DVN forgery. Web: error-based SSTI, parser-differential / route-confusion. AI: CBSE config-based sandbox escape, context-stitching passive injection, MCP schema poisoning. Binary: memory-corruption reachable to control, firmware rehosting gaps.
-- **Hypotheses are LEADS.** My output enumerates hypotheses in the declared stable, non-weighted order; confirmation is `security-analyst`/`exploit-developer` reproducing under **all four observable predicates** (`multi-agent-evidence-gating`), then `impact-validator`'s G1–G4 gate. I never present a hypothesis as confirmed.
+- **Hypotheses are LEADS.** My output enumerates hypotheses in the declared stable, non-weighted order; confirmation is `security-analyst`/`exploit-developer` reproducing under **all four observable predicates** — oracle match, control separation, clean-snapshot repeat stability, production-fidelity harness (the gate `impact-validator` defines; `systematic-attacking` Law 2) — then `impact-validator`'s G1–G4 gate. I never present a hypothesis as confirmed.
 
 ## Multi-model rule
 

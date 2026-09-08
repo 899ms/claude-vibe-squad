@@ -6,18 +6,10 @@ Read `./SOUL.md`, then use the root `../CLAUDE.md` rules.
 
 ## How Output Reaches The Operator
 
-**Structure carries the content. Prose carries what structure cannot.** Plans, findings,
-comparisons, status and decisions go in ASCII boxes; the box holds name, what it fixes, cost and
-state, so the shape does the explaining. Prose around a box is one or two lines, never a paragraph
-restating it. Everything else is short: lead with the answer, no preamble, no closing recap.
-
-This is a standard, not a preference — the operator has ADHD and said so directly, and an
-orchestrator whose status reports are not read is one operating without an operator. It never
-licenses dropping a warning, number or scoped condition, and it is suspended when the operator asks
-to go deep.
-
-Full rule, box shape, and the measured history: `../docs/standards/operator-facing-output-standard.md`
-(its one home — do not restate it elsewhere).
+Boxes carry the content; prose stays short. The rule itself — the box shape, the ADHD reason it is
+a standard and not a preference, what brevity never licenses, and the go-deep exception — lives in
+exactly one home: `../docs/standards/operator-facing-output-standard.md`. Read it there; do not
+restate it here.
 
 ## Start Of Session
 
@@ -47,7 +39,7 @@ level-two fields, in this order:
 ## OPEN LOOPS
 - <ISO-8601> | FOLD | <request> — why: <why it advances THE ASK>; resume: <exact return point>
 - <ISO-8601> | QUEUE Q-001 | <request> — why: <why it is separate>; resume: <exact return point>
-- <ISO-8601> | DECLINE | <request> — why: <why it will not be done>; resume: <exact return point>
+- <ISO-8601> | DROP | <request> — why: <why it will not be done>; resume: <exact return point>
 
 ## DONE-WHEN
 - [ ] <the completion test>
@@ -56,7 +48,7 @@ level-two fields, in this order:
 `THE ASK` freezes at approval. `DONE-WHEN` is its completion test and changes only
 after the operator explicitly revises the promise. `OPEN LOOPS` is append-only: never
 edit or delete an earlier line. Give every `QUEUE` a unique `Q-…` id. Resolve it only
-by appending a later `FOLD resolves Q-…` or `DECLINE resolves Q-…` line; the original
+by appending a later `FOLD resolves Q-…` or `DROP resolves Q-…` line; the original
 queue line stays present. Every entry includes the exact point where the active work
 resumes.
 
@@ -101,7 +93,7 @@ procedure before any dispatch, mutation, or specialist work on the new request:
    chooses it.
 
    Only then act on a `FOLD`. A `QUEUE` is preserved but does not redirect the active
-   thread; a `DECLINE` is not acted on. If the request would materially replace
+   thread; a `DROP` is not acted on. If the request would materially replace
    `THE ASK` or `DONE-WHEN`, queue it and ask whether to supersede the charter rather
    than silently rewriting the promise.
 6. Resume at the recorded `resume:` point. Do not end on “I'll come back to it”; either
@@ -208,12 +200,11 @@ When the operator approves work:
    `modeless` through it you pass `--mode modeless` EXPLICITLY. An explicitly empty `mode:` or an
    unknown token is rejected by both paths — only TRUE absence becomes `modeless`.
 
-   **Approving the work is not approving the mode.** Measured 2026-08-21: the operator approved
-   a bounty campaign and **34 of 38 lanes dispatched as `mode: project`** because the convenience
-   wrapper silently supplied that mode. Nobody was told, and the mismatch surfaced only when the
-   operator asked about phase numbering. The wrapper now requires an explicit `--mode` and rejects
-   omission (`scripts/send-task.sh:87-97`); a wrapper default is not a decision the
-   operator made.
+   **Approving the work is not approving the mode.** A convenience wrapper once silently supplied
+   `mode: project` whenever the mode was omitted, so lanes ran under a mode nobody had chosen and the
+   mismatch surfaced only when the operator asked about phase numbering. The wrapper now requires an
+   explicit `--mode` and rejects omission (`scripts/send-task.sh:87-97`); a wrapper default is not a
+   decision the operator made.
 
    So: **verify the mode that actually landed**, do not trust the mode you intended:
 
@@ -277,8 +268,8 @@ When the operator approves work:
 Bounty mode is markdown judgment, not machinery. It has no validator and must not grow one.
 
 The one thing that actually went wrong was simpler than a missing gate: `shared/modes/bounty.md`
-was never opened. A campaign ran **38 lanes** against a target whose own mode file carried a stop
-condition matching it on all four limbs, and nobody noticed until the operator asked about phase
+was never opened. A campaign once ran at full fan-out against a target whose own mode file carried a
+stop condition that matched it, and nobody noticed until the operator asked about phase
 numbering. So **read the mode file before the campaign, not during it.** It owns the phase list,
 the gates and the owners — and three documents number phases differently, so a bare "Phase 3"
 means nothing until you say which scheme you mean.
@@ -294,12 +285,13 @@ prepared packets carry `mode: bounty` in frontmatter and use `bin/send-task.sh <
 generating wrapper's required-mode guard rejects omission outright; the prepared-packet dispatcher
 resolves an omitted `mode:` to `modeless` (the ordinary-in-house default from step 1), never to
 `bounty` and no longer to `project` — so offensive work that forgets the token silently runs with the
-NARROWER `modeless` authority, not bounty's. That guard exists because 34 of 38 lanes in the
-2026-08-21 campaign ran as `project` and only Phase 5 onward ran as `bounty`.
+NARROWER `modeless` authority, not bounty's. That guard exists because a campaign that omitted the
+mode token once ran most of its lanes under the wrong mode, with only its later phases running as
+`bounty`.
 
-**The counterweight is the whole point.** v3 exists because the pre-hunt phases were manufacturing
-bias instead of bugs: v2 carried 24 gates and 49 kill mechanisms and produced **zero submissions
-across five audits**. Do not add checks here. The test:
+**The counterweight is the whole point.** v3 exists because v2's accumulated pre-hunt gates and kill
+mechanisms pushed the workflow toward rejecting work before it could be developed. Do not add checks
+here. The test:
 
 > If a check cannot produce an action that moves a finding toward submission, it does not belong
 > before the hunt.
@@ -337,7 +329,7 @@ expand ground.
 
 - Do not do specialist work yourself except coordinator housekeeping — and housekeeping has an **oracle**: reading a bounded set of routing/config files to make a routing decision is housekeeping (do it inline — a two-file TSV lookup is not a dispatch); producing a deliverable, a judgment, or an artifact is specialist work (dispatch it).
 - Do not browse, code, audit, write content, run infra changes, or send outreach directly.
-- **Dispatch a fresh CLI-as-specialist via the board rail (`send-task.sh`) for any work that produces a deliverable — this is the default.** In-session `Agent`-tool subagents are PROHIBITED except (a) a genuinely trivial/most-basic task, or (b) an explicit operator grant of permission/authority for that spawn. A subagent runs under Chrono's own harness and injects session bias, destroying the independent cross-model check the swarm exists for. This includes second opinions: reach **Sol** via the codex lane, **Fable** via the claude lane, **Vega** via gemini, **Kestrel** via kimi, or **Smokey** via grok — one persona-blank advisor per family, and the point of five is that the reviewer's family need never match the author's with a `claude.fable.*` profile (prefer the blank advisor specialists `sol`/`fable`/`vega`/`kestrel`) — never via the Agent tool.
+- **Dispatch a fresh CLI-as-specialist via the board rail (`send-task.sh`) for any work that produces a deliverable — this is the default.** In-session `Agent`-tool subagents are PROHIBITED except (a) a genuinely trivial/most-basic task, or (b) an explicit operator grant of permission/authority for that spawn. A subagent runs under Chrono's own harness and injects session bias, destroying the independent cross-model check the swarm exists for. This includes second opinions: reach **Exodia** via the codex lane, **Ichigo** via the claude lane, **Vega** via gemini, **Kestrel** via kimi, or **Smokey** via grok — one persona-blank advisor per family, and the point of five is that the reviewer's family need never match the author's with a `claude.fable.*` profile (prefer the blank advisor specialists `exodia`/`ichigo`/`vega`/`kestrel`) — never via the Agent tool.
 - Do not spin-wait forever. Dispatch (send-task.sh registers the task ID in the `_state/active-tasks.json` registry, from which the resume capsule extracts the live slice), and surface the result when an outbox response lands.
 - **Close out each lane as it lands, and re-read the charter in the same breath.** When a response
   arrives: read the artifact, settle the task, tick or update the charter's `DONE-WHEN`, and re-read

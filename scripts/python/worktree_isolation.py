@@ -1619,6 +1619,8 @@ def commit_worker_residue(
     _validate_task_attempt(handle.task_id, handle.attempt_id)
     repo_root = _canonical_existing(handle.repo_root, "repo root")
     worktree_root = worktree_write_scope_paths(handle.worktree_root, repo_root)[0]
+    if isinstance(write_scope, (str, bytes)) or not isinstance(write_scope, Sequence):
+        raise WorktreeIsolationError("integration write scope must be a sequence of paths")
     scopes = tuple(
         _normalized_relative(item, label="write scope") for item in write_scope
     )
@@ -1626,8 +1628,8 @@ def commit_worker_residue(
         _normalized_relative(item, label="excluded bridge path")
         for item in exclude_paths
     )
-    if not scopes:
-        raise WorktreeIsolationError("integration write scope is empty")
+    # Empty logical scope selects no residue; identity checks still run below.
+    # Bridge-owned outputs are published separately from Git integration.
     current_worker_branch = _run_git(
         ["symbolic-ref", "--quiet", "--short", "HEAD"],
         cwd=worktree_root,
@@ -1731,6 +1733,8 @@ def integrate_worktree_commits(
         )
     repo_root = _canonical_existing(handle.repo_root, "repo root")
     worktree_root = worktree_write_scope_paths(handle.worktree_root, repo_root)[0]
+    if isinstance(write_scope, (str, bytes)) or not isinstance(write_scope, Sequence):
+        raise WorktreeIsolationError("integration write scope must be a sequence of paths")
     scopes = tuple(
         _normalized_relative(item, label="write scope") for item in write_scope
     )
@@ -1738,8 +1742,8 @@ def integrate_worktree_commits(
         _normalized_relative(item, label="excluded bridge path")
         for item in exclude_paths
     )
-    if not scopes:
-        raise WorktreeIsolationError("integration write scope is empty")
+    # Empty logical scope authorizes no code. Continue through the history and
+    # residue audits so an unauthorized commit cannot hide behind a no-op.
     _RELEASE_EVIDENCE_CONTRACTS[(handle.task_id, handle.attempt_id)] = (
         tuple(path.as_posix() for path in scopes),
         tuple(path.as_posix() for path in excluded),
@@ -1801,25 +1805,27 @@ def integrate_worktree_commits(
             )
         scope_strings = [path.as_posix() for path in scopes]
         literal_scopes = [f":(literal){path}" for path in scope_strings]
-        scope_drift = _run_git(
-            [
-                "diff",
-                "--quiet",
-                handle.base_commit,
-                target_before,
-                "--",
-                *literal_scopes,
-            ],
-            cwd=repo_root,
-        )
-        if scope_drift.returncode not in {0, 1}:
-            raise WorktreeIsolationError(
-                f"cannot verify target write scope: {scope_drift.stderr.strip()}"
+        # With no pathspec Git would compare the entire tree, not an empty scope.
+        if scopes:
+            scope_drift = _run_git(
+                [
+                    "diff",
+                    "--quiet",
+                    handle.base_commit,
+                    target_before,
+                    "--",
+                    *literal_scopes,
+                ],
+                cwd=repo_root,
             )
-        if scope_drift.returncode == 1:
-            raise WorktreeIsolationError(
-                "target write scope changed since the worker worktree was created"
-            )
+            if scope_drift.returncode not in {0, 1}:
+                raise WorktreeIsolationError(
+                    f"cannot verify target write scope: {scope_drift.stderr.strip()}"
+                )
+            if scope_drift.returncode == 1:
+                raise WorktreeIsolationError(
+                    "target write scope changed since the worker worktree was created"
+                )
         changed = _audited_worker_changes(
             repo_root,
             handle.base_commit,

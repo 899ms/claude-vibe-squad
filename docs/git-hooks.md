@@ -1,48 +1,68 @@
 # Git hooks
 
-Vibe Squad ships a **tracked, opt-in** pre-commit hook at [`.githooks/pre-commit`](../.githooks/pre-commit). Tracked hooks reach clones; the classic `.git/hooks/` directory does not, so this is how a clone gets the squad's commit-time checks.
+Vibe Squad installs a reviewed snapshot of its private-memory leak guard in
+Git's private hooks directory. The installed executable is outside the mutable
+worktree, so checking out another branch cannot replace code that Git runs on
+your next commit.
 
-## Enable it (one-time, per clone)
+## Install it (one-time, per clone)
 
-```sh
-git config core.hooksPath .githooks
-```
-
-That points git at the tracked `.githooks/` directory instead of `.git/hooks/`. It is **opt-in** and **per-clone local config** — it is never set for you, and it is not committed.
-
-Disable again with:
+From the repository root:
 
 ```sh
-git config --unset core.hooksPath
+bash docs/install/install-pre-commit-hook.sh
 ```
 
-> **Precedence note.** `core.hooksPath` *replaces* `.git/hooks` — while it is set, any script in `.git/hooks/` (including a locally installed one) no longer runs. That costs nothing here: `.githooks/pre-commit` itself runs the private-memory **leak guard** first, then the specialist + format checks the local hook had, capability validation, and the moat Tier-A check — a strict superset of the local hook. See "Composing with the leak guard" below.
+The installer copies [`scripts/hooks/pre-commit`](../scripts/hooks/pre-commit)
+to the Git common directory and creates a small managed entrypoint beside it.
+Both are regular executable files, not symlinks. Re-run the installer after
+pulling an intentional leak-guard update so the reviewed snapshot advances.
 
-## What the pre-commit hook does
+Do not point `core.hooksPath` at a tracked directory, and do not link a file in
+`.git/hooks/` back into the worktree. Both patterns let the checked-out branch
+replace code that runs with the developer's privileges. The tracked
+`.githooks/pre-commit` file is not an installation target.
 
-It runs five checks, in order:
+## Verify it
 
-1. **Private-memory leak guard** — **always first, and blocking.** Runs `scripts/hooks/pre-commit`, which rejects staged private-memory artifacts (restricted-sensitivity notes, `_state/bounty/` paths, legacy `chrono-kg` database blobs). This is the one failure that cannot be undone once pushed, so it gates before every other check — and a *missing* guard script also blocks rather than passing silently.
-2. **Capability validation** — only when the commit stages files under `shared/capabilities/` or `shared/registries/`. Runs `bin/validate-capabilities.sh` and its `--self-test`; **blocks the commit (exit 1)** if either fails.
-3. **Specialist and live capability-home validation** — **on every commit**, whatever is staged, so live host drift is caught even when no specialist brief changed. Runs `bin/validate-specialists.sh --quiet` with host-independent mode forced off; **blocks the commit (exit 1)** on failure.
-4. **Format checks** — **warnings only, never blocking.** Flags shell scripts missing a `set -` safety line and `shared/dispatch-toolkit.sh` missing the no-delete-rule marker.
-5. **moat Tier-A boundary check** — **only fires when the commit stages files under `moat/`** (non-moat commits skip it entirely). Runs the public, data-free Layer-1 leak-boundary scanner exactly as documented in [`moat/boundary/README.md`](../moat/boundary/README.md):
+```sh
+bash bin/doctor.sh --check-pre-commit-hook
+git config --show-origin --get-all core.hooksPath  # expect no output and exit 1
+git hook run pre-commit                            # expect no output and exit 0 on a clean index
+```
 
-   ```sh
-   git diff --cached --name-only -z --diff-filter=ACMR -- moat/ \
-     | xargs -0 node moat/boundary/tier-a.mjs --staged
-   ```
+The focused doctor check resolves Git's effective hooks directory rather than
+looking only at local config. It fails if a global or system `core.hooksPath`
+still overrides the private directory, or if the entrypoint or copied guard is
+missing, non-executable, or a symlink. The installer reports the origin of an
+effective override and refuses to claim success until it is removed.
 
-   It **blocks the commit (exit 1)** if the scanner reports a boundary violation. It **fails open with a note** (does not block) if `node` or `moat/boundary/tier-a.mjs` is unavailable — so a clone lacking node can still commit non-moat work. To enable it, install the scanner's dependency once with `npm ci --prefix moat` and make sure `node` is on your `PATH`.
+## What the local guard does
 
-The retired Spec-1.5 **auto-snapshot** check is intentionally absent: current dispatch deliberately leaves git untouched, so there is no snapshot to require.
+The installed `vibe-squad-pre-commit` snapshot rejects staged private-memory
+artifacts:
 
-## Composing with the leak guard
+- restricted-sensitivity frontmatter;
+- paths beneath `_state/bounty/`;
+- a literal `${CHRONO_VAULT_ROOT}` phantom path; and
+- legacy `kg.db*`, `.db-wal`, and `.db-shm` artifacts.
 
-`scripts/hooks/pre-commit` is a separate Python **leak guard** that rejects staged private-memory artifacts. It is orthogonal to Tier-A: the leak guard blocks private-file *presence*; Tier-A checks Layer-1 *contents* for capability/provenance/secret issues.
+It reads staged index blobs, so unstaged worktree content cannot hide a staged
+restricted version or create a false rejection. Any failure to enumerate or
+read the staged objects blocks the commit rather than passing silently.
 
-`.githooks/pre-commit` invokes the leak guard itself, as its first and unconditional check, so setting `core.hooksPath .githooks` gives you both from a single tracked file. The guard also remains usable standalone: a clone that does not set `core.hooksPath` can still install it as a local `.git/hooks/pre-commit`.
+The installer will not overwrite an unrelated existing pre-commit hook. Review
+and compose that hook manually, remove it only when you have decided it is safe
+to do so, and rerun the installer. `bin/doctor.sh` treats the unresolved state
+as an issue instead of reporting the clone healthy.
 
-## Scope
+## Repository-wide checks
 
-`.githooks/pre-commit` is the public Layer-1 gate. Private exact-target matching (Tier-B) belongs in private pre-push / CI enforcement, not this public pre-commit — see [`moat/boundary/README.md`](../moat/boundary/README.md).
+The local snapshot deliberately executes no worktree code. Broader specialist,
+capability, format, and moat Tier-A checks therefore run in public CI, where a
+contributor branch cannot replace a developer's local executable hook. The
+private exact-target Tier-B scanner belongs in private pre-push/CI enforcement;
+see [`moat/boundary/README.md`](../moat/boundary/README.md).
+
+The retired Spec-1.5 auto-snapshot check is intentionally absent: current
+dispatch leaves Git untouched, so there is no snapshot to require.

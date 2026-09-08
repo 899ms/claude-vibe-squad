@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
 import posixpath
+import re
 import shlex
 import stat
 import subprocess
@@ -60,6 +62,19 @@ DEFAULT_BOARD_STATE_DIR = PurePosixPath("_state/board-dispatch")
 
 PROTECTED_PATH_PREFIXES = ("scripts/python/", "bin/", "plugins/", "tools/")
 PROTECTED_PATHS = frozenset({"shared/dispatch-toolkit.sh"})
+
+TASK_TOKEN_RE = re.compile(r"(?<![A-Za-z0-9_-])(TASK-[A-Za-z0-9-]+)(?![A-Za-z0-9_-])")
+COORDINATOR_DIRECT_REASON_RE = re.compile(
+    r"^Coordinator-Direct-Reason:[ \t]*(\S.*)$", flags=re.MULTILINE
+)
+LANE_AUTHOR_FAMILIES = {
+    "claude": "anthropic",
+    "gpt-codex": "openai",
+    "codex": "openai",
+    "gemini": "google",
+    "grok": "xai",
+    "kimi": "moonshot",
+}
 
 
 #: Environment variables that tell git WHICH repository to act on. A projection
@@ -126,6 +141,33 @@ class ProjectionResult:
     #: withholds the named private components.
     public_bounty_capability_status: str
     public_bounty_withheld: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProvenanceCommit:
+    commit: str
+    paths: tuple[str, ...]
+    evidence: str = ""
+
+
+@dataclass(frozen=True)
+class PublishProvenanceReport:
+    integration_receipt_bound: tuple[ProvenanceCommit, ...] = ()
+    cross_family_review_bound: tuple[ProvenanceCommit, ...] = ()
+    declared_coordinator_direct: tuple[ProvenanceCommit, ...] = ()
+    unexplained: tuple[ProvenanceCommit, ...] = ()
+
+    @property
+    def protected_commit_count(self) -> int:
+        return sum(
+            len(items)
+            for items in (
+                self.integration_receipt_bound,
+                self.cross_family_review_bound,
+                self.declared_coordinator_direct,
+                self.unexplained,
+            )
+        )
 
 
 def _run(
@@ -310,6 +352,94 @@ def _receipt_bindings(board_state: Path) -> dict[str, list[frozenset[str]]]:
     return bindings
 
 
+def _load_task_registry(path: Path) -> dict[str, dict[str, object]]:
+    """Load controller-owned review settlement state conservatively.
+
+    An unavailable or malformed registry yields no bindings. This fence is a
+    report, so the safe degradation is to keep affected commits unexplained,
+    never to infer approval from worker-authored trailers or response prose.
+    """
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    return {
+        task_id: entry
+        for task_id, entry in payload.items()
+        if isinstance(task_id, str) and isinstance(entry, dict)
+    }
+
+
+def _entry_author_family(entry: dict[str, object]) -> str:
+    declared = entry.get("author_family")
+    if isinstance(declared, str) and declared.strip():
+        return declared.strip().casefold()
+    lane = entry.get("to_model")
+    return LANE_AUTHOR_FAMILIES.get(str(lane or "").strip().casefold(), "")
+
+
+def _reviewer_family(entry: dict[str, object]) -> str:
+    review_model = str(entry.get("review_model") or "").strip().casefold()
+    return LANE_AUTHOR_FAMILIES.get(review_model, "")
+
+
+def _scope_covers_path(root: Path, raw_scope: object, path: str) -> bool:
+    if not isinstance(raw_scope, str) or not raw_scope.strip():
+        return False
+    scope = raw_scope.strip().replace("\\", "/")
+    if os.path.isabs(scope):
+        try:
+            scope = Path(scope).resolve().relative_to(root.resolve()).as_posix()
+        except (OSError, ValueError):
+            return False
+    scope = scope.removeprefix("./").rstrip("/")
+    if not scope or scope == "." or ".." in PurePosixPath(scope).parts:
+        return False
+    if any(character in scope for character in "*?["):
+        return fnmatch.fnmatchcase(path, scope)
+    return path == scope or path.startswith(scope + "/")
+
+
+def _cross_family_review_task(
+    root: Path,
+    *,
+    commit_message: str,
+    paths: tuple[str, ...],
+    registry: dict[str, dict[str, object]],
+) -> str | None:
+    """Return the controller-settled task that independently approved a commit."""
+
+    for task_id in TASK_TOKEN_RE.findall(commit_message):
+        entry = registry.get(task_id)
+        if not entry:
+            continue
+        scopes = entry.get("write_scope")
+        if not isinstance(scopes, list) or not all(
+            any(_scope_covers_path(root, scope, path) for scope in scopes)
+            for path in paths
+        ):
+            continue
+        author_family = _entry_author_family(entry)
+        reviewer_family = _reviewer_family(entry)
+        if (
+            str(entry.get("status") or "").strip().casefold() != "complete"
+            or str(entry.get("verdict") or "").strip().upper() != "APPROVE"
+            or str(entry.get("review_settled_by") or "").strip()
+            != "chrono-explicit"
+            or not str(entry.get("cross_family_review_ref") or "").strip()
+            or entry.get("review_force_override") is True
+            or not author_family
+            or not reviewer_family
+            or author_family == reviewer_family
+        ):
+            continue
+        return task_id
+    return None
+
+
 def _provenance_dispatch_command(commit: str, paths: tuple[str, ...]) -> str:
     specialist = (
         "devops-engineer"
@@ -336,22 +466,73 @@ def check_publish_provenance(
     anchor: str,
     source: str,
     board_state: Path,
-) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    registry_path: Path | None = None,
+) -> PublishProvenanceReport:
     bindings = _receipt_bindings(board_state)
-    findings: list[tuple[str, tuple[str, ...]]] = []
+    registry = _load_task_registry(
+        registry_path or board_state.parent / "active-tasks.json"
+    )
+    receipt_bound: list[ProvenanceCommit] = []
+    review_bound: list[ProvenanceCommit] = []
+    coordinator_direct: list[ProvenanceCommit] = []
+    unexplained: list[ProvenanceCommit] = []
     for commit, paths in _protected_first_parent_commits(root, anchor, source):
         if any(set(paths) <= integrated for integrated in bindings.get(commit, [])):
+            receipt_bound.append(ProvenanceCommit(commit, paths))
             continue
-        findings.append((commit, paths))
-    return tuple(findings)
+        message = _git(root, ["show", "-s", "--format=%B", commit]).decode(
+            "utf-8", errors="replace"
+        )
+        reviewed_task = _cross_family_review_task(
+            root,
+            commit_message=message,
+            paths=paths,
+            registry=registry,
+        )
+        if reviewed_task:
+            review_bound.append(ProvenanceCommit(commit, paths, reviewed_task))
+            continue
+        direct = COORDINATOR_DIRECT_REASON_RE.search(message)
+        if direct:
+            coordinator_direct.append(
+                ProvenanceCommit(commit, paths, " ".join(direct.group(1).split()))
+            )
+            continue
+        unexplained.append(ProvenanceCommit(commit, paths))
+    return PublishProvenanceReport(
+        integration_receipt_bound=tuple(receipt_bound),
+        cross_family_review_bound=tuple(review_bound),
+        declared_coordinator_direct=tuple(coordinator_direct),
+        unexplained=tuple(unexplained),
+    )
 
 
-def format_publish_provenance(findings: tuple[tuple[str, tuple[str, ...]], ...]) -> str:
-    lines: list[str] = []
-    for commit, paths in findings:
-        lines.append(f"UNBOUND PROTECTED COMMIT {commit}")
-        lines.extend(f"  path: {json.dumps(path)}" for path in paths)
-        lines.append(f"  dispatch: {_provenance_dispatch_command(commit, paths)}")
+def format_publish_provenance(report: PublishProvenanceReport) -> str:
+    if report.protected_commit_count == 0:
+        return ""
+    lines = [
+        "PUBLISH PROVENANCE SUMMARY",
+        f"  integration-receipt-bound: {len(report.integration_receipt_bound)}",
+        f"  cross-family-review-bound: {len(report.cross_family_review_bound)}",
+        f"  declared-coordinator-direct: {len(report.declared_coordinator_direct)}",
+        f"  unexplained: {len(report.unexplained)}",
+    ]
+    for finding in report.declared_coordinator_direct:
+        lines.append(f"DECLARED COORDINATOR-DIRECT PROTECTED COMMIT {finding.commit}")
+        lines.extend(f"  path: {json.dumps(path)}" for path in finding.paths)
+        lines.append(f"  reason: {json.dumps(finding.evidence)}")
+        # A declaration classifies the exception but does not approve it. Keep
+        # the independent-review action loud, so a self-authored trailer can
+        # never silence a commit that had no review.
+        lines.append(
+            f"  dispatch: {_provenance_dispatch_command(finding.commit, finding.paths)}"
+        )
+    for finding in report.unexplained:
+        lines.append(f"UNBOUND PROTECTED COMMIT {finding.commit}")
+        lines.extend(f"  path: {json.dumps(path)}" for path in finding.paths)
+        lines.append(
+            f"  dispatch: {_provenance_dispatch_command(finding.commit, finding.paths)}"
+        )
     return "\n".join(lines)
 
 

@@ -1,6 +1,6 @@
-# generated_by=lane-capability-registry/v1 registry_sha256=55eeb1e04b2465f5a723bcb1fddec4823f2751b08c72b701fcd2d542a836e29f
-name = "sol"
-description = "Thin Codex adapter for sol; canonical brief is authoritative."
+# generated_by=lane-capability-registry/v1 registry_sha256=d3388ec330d2307e11cf0845c48cc8bc185780c3c1cb6065f06ce13b34e4430a
+name = "exodia"
+description = "Thin Codex adapter for exodia; canonical brief is authoritative."
 model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 # BEGIN SPECIALIST CAPABILITY PROJECTION
@@ -9,9 +9,9 @@ capability_source_sha256 = "146310977227fae7833652053265e5f7f29bde12d6a39192ced8
 mcps = ["chrono-vault"]
 # END SPECIALIST CAPABILITY PROJECTION
 developer_instructions = """
-You are the `sol` specialist in the `gpt-codex` lane.
+You are the `exodia` specialist in the `gpt-codex` lane.
 
-Canonical specialist instructions live at `shared/specialists/sol.md`. Read that file at task start and follow it over this adapter.
+Canonical specialist instructions live at `shared/specialists/exodia.md`. Read that file at task start and follow it over this adapter.
 
 Lane capability profile is `gpt-codex` from `model-lanes/lane-capabilities.tsv`. This adapter declares no native tool allowlist; verify the runtime-discovered tool and MCP surface before use. A registry capability is a ceiling, not task authorization.
 

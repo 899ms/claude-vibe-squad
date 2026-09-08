@@ -73,15 +73,57 @@ MCP tools (canonical server name `chrono-vault`; legacy aliases `chrono-kg` and 
 
 ## Boundary & sensitivity
 
+- **Write-time privacy:** `privacy.py` screens the formats named in `shared/memory-discipline.md` before capture truncation, spool persistence, and distillation; the canonical writer screens direct and distilled note fields too. The spool's `raw_title`/`raw_body` names mean undistilled, now privacy-screened text. Original response bytes remain the source of the replay hash. Historical spool rows are screened before graduation without rewriting history. Format matching does not identify arbitrary personal information or secrets without a recognized format.
+- **Unavailable vault:** the watcher warns and attempts the independent episodic spool. A substantive capture with no resolved vault returns `vault_unavailable` before a provider call and logs its failure; the watcher still returns success for settlement. Original outbox responses and historical stores are not rewritten by this change.
+- **Retired disputed signal:** recall no longer returns `disputed`, and resume no longer scans or renders automatic contradiction debt. Subject overlap emits no new flags. Historical audit events, explicit supersedes/coexists-with declarations, lifecycle transitions, negative usage ranking, and the curation queue remain. Consumers must use the explicit usage counts rather than the removed boolean.
+- **Matching snippets:** recall uses FTS5's selected matching passage across indexed fields, retaining bounded untrusted quoting and truncation indicators. `get_note` supplies full context; the snippet is a lead, not the complete claim. The current index leaves `evidence_summary` empty and does not index `evidence_refs`.
+
 - **The vault lives outside the public repo** and resolution is fail-closed: a `CHRONO_VAULT_ROOT` that lands inside a public git worktree is refused, so notes can never be written into the tracked tree.
 - **Per-lane clearance:** `restricted` notes are only returned to a `restricted`-clearance MCP instance; `internal` is the safe default.
 - **Distillation is the one auto-capture step that leaves the machine.** After the mechanical filter accepts a capture, `autocapture.distill()` sends up to 12,000 characters of the response body to an external provider through the `gemini` CLI to rewrite it into the fields recall weights (`title`, `aliases`, `attack_class`, `keywords`). For `restricted` captures — anything from the `security` namespace or `bounty` mode, i.e. unreported vulnerability evidence on someone else's systems — this is **off unless explicitly enabled** with `CHRONO_AUTOCAPTURE_DISTILL_RESTRICTED=on`. With it off the note is still written, carrying the mechanical filter's output instead of the distiller's. `CHRONO_AUTOCAPTURE_DISTILL=off` disables distillation entirely and outranks the opt-in.
-- **Pre-commit leak guard:** `scripts/hooks/pre-commit` (install: `ln -sf ../../scripts/hooks/pre-commit .git/hooks/pre-commit`) inspects **staged blobs** and blocks a commit that contains a `_state/bounty/` path, a literal `${CHRONO_VAULT_ROOT}` phantom path, a `kg.db*` / `.db-wal` / `.db-shm` artifact, or any file with `sensitivity: restricted` frontmatter. It fails closed if it cannot inspect the staged content.
+- **Pre-commit leak guard:** `scripts/hooks/pre-commit` (install from the repository root with `bash docs/install/install-pre-commit-hook.sh`) inspects **staged blobs** and blocks a commit that contains a `_state/bounty/` path, a literal `${CHRONO_VAULT_ROOT}` phantom path, a `kg.db*` / `.db-wal` / `.db-shm` artifact, or any file with `sensitivity: restricted` frontmatter. The installer copies the reviewed guard into Git's private hooks directory; do not symlink this worktree file there, because another branch could replace code that Git executes on a later commit. The guard fails closed if it cannot inspect the staged content.
 - **Never `rm` a note.** Supersede or invalidate via `set_status` — a killed/retracted finding is retained as signal.
 
 ## Ops
+
+- **Scratch regression and falsification controls:** run `python -B plugins/chrono-vault/tests/verify_memory_capture_fixes.py --baseline 3a214606e2a846a661a5710ad61a18f8addff700`. This explicitly runs the capture/recall/watcher/resume fixtures against repaired code, pre-fix source copies, and a disabled-privacy mutation followed by restoration. Stores and the controlled settlement sink are temporary; it never starts the watcher daemon or contacts tmux/providers. Independent review is required before deployment.
 
 - **Index is derived and rebuildable.** `record` upserts into the index automatically; a stale-schema index is auto-rebuilt on the next write; `health().index_dirty` flags when the index no longer matches the notes on disk.
 - **Maintenance functions** live in `index.py` (module functions, not MCP tools): `sync_index()` (incremental — reindex changed notes, quarantine malformed ones, drop deletions), `rebuild_index()` (full atomic rebuild into a temp DB, `PRAGMA integrity_check`, then publish; preserves the `usage` table and bumps the generation), and `index_generation()`. Run them against the module with `CHRONO_VAULT_ROOT` set when `health` reports `index_dirty: true` or after bulk hand-edits in Obsidian.
 - **Recall-quality gold eval:** `tests/` carries the plugin's test suite; extend the recall gold cases with real "should have recalled X" examples from live work, and treat a regression there as the gate before changing ranking (or before ever adding vectors).
 - **Malformed notes** are quarantined (recorded in the `quarantine` table) rather than crashing an index build; `health` and a rebuild surface them.
+
+### Privacy after transformations
+
+`privacy.redact_text` recognizes the documented identifier formats; it does not
+recognize arbitrary secrets or decode arbitrary encodings. Whole inputs are
+screened before lossy operations, and composed text is screened before bounds.
+A screened string is not a capability to emit any later transformation of it.
+
+Final boundaries enforce this independently of upstream helpers:
+
+- JSONL append screens values and checks the exact serialized line. JSON escape
+  spellings that introduce a match are minimized while preserving word separation;
+  an unsafe remaining scalar is withheld. Matches across JSON structure reject the
+  append rather than corrupting its keys or shape. This covers the episodic spool,
+  failure log, and curation queue.
+- Canonical notes screen derived relationships before computing their content
+  reference and check final Markdown before writing. Lifecycle rewrites share
+  that serializer and can therefore reject unsafe historical content.
+- Search indexing screens final FTS values after joining list entries. Existing
+  index rows are not migrated; recall also screens its formatted excerpt.
+- Distillation screens callback inputs and context, then the final process prompt.
+  Model output is screened before field bounds and again before note persistence.
+  CLI output is screened at serialization.
+
+These checks cover the current formats and boundaries, not every possible future
+transformation, third-party serializer, or provider behavior. Historical spools,
+notes, and indexes are not rewritten by this change.
+
+Run the isolated regression suite with `python -B tests/test_privacy_boundaries.py`.
+`python -B tests/verify_privacy_boundaries.py --baseline COMMIT` also runs assertion
+controls against the baseline and deliberately broken scratch copies; no provider
+is invoked. `python -B tests/privacy_transform_inventory.py` emits a conservative
+AST consumer inventory with positive and negative controls. Its merged branches
+and whole-object propagation produce candidate consumers, not vulnerability counts;
+dynamic dispatch and external libraries still require manual tracing.

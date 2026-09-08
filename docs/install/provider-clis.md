@@ -20,12 +20,14 @@ substitutes an MCP relay or a direct model API for a model lane.
 |---|---|---|---|
 | `claude` | Anthropic native installer | `https://claude.ai/install.sh` | `claude` → `/login` (subscription or managed login) |
 | `codex` | npm (global) | `@openai/codex` | `codex login` |
-| `agy` (the `gemini` lane) | Antigravity provider distribution | Antigravity CLI | personal OAuth |
-| `grok` | xAI provider distribution | Grok CLI | policy in `model-lanes/lane-capabilities.tsv` |
+| `agy` (the `gemini` lane) | Standalone binary — no package manager | Antigravity (Google): <https://antigravity.google> | personal OAuth |
+| `grok` | Vendor install — no package manager | xAI Grok CLI | `XAI_API_KEY` policy in `model-lanes/lane-capabilities.tsv` |
 | `kimi` | `uv tool` | `kimi-cli` (PyPI) | `kimi` → follow its login prompt |
 
-Package identities were confirmed against the live npm and PyPI registries on
-2026-08-13. Version numbers move; the package names are the stable part.
+The `codex` (npm) and `kimi` (PyPI) package identities were confirmed against the
+live registries on 2026-08-13; `claude` installs from Anthropic's script and
+`agy`/`grok` are vendor-distributed, so none of those three is a package-manager
+entry. Version numbers move; the package/vendor names are the stable part.
 
 ## claude
 
@@ -65,11 +67,13 @@ command -v codex && codex --version
 
 ## gemini lane (`agy`)
 
-Install Antigravity's `agy` binary from its provider distribution, then run it
-interactively to complete personal OAuth. The routing identifier remains
-`gemini`, but the standalone `gemini` binary and its API-key lane are retired.
-`GEMINI_API_KEY` is used only by optional metered media-provider operations; it
-does not authenticate this model lane.
+`agy` is Antigravity's CLI, distributed by Google as a standalone binary — there
+is no Homebrew, npm, or `uv` package. Download it from Antigravity
+(<https://antigravity.google>) and put it on your `PATH` (for example under
+`~/.local/bin`), then run it interactively to complete personal OAuth. The
+routing identifier remains `gemini`, but the standalone `gemini` binary and its
+API-key lane are retired. `GEMINI_API_KEY` is used only by optional metered
+media-provider operations; it does not authenticate this model lane.
 
 Check:
 
@@ -94,7 +98,10 @@ command -v kimi && kimi --version
 
 ## grok
 
-Install the Grok CLI from the xAI provider distribution. Follow the auth policy
+`grok` is xAI's Grok CLI. There is no confirmed one-line public package command
+for it, so obtain it from xAI's official distribution and put it on your `PATH`;
+a working install links `grok` from under `~/.grok`, so that directory (or
+wherever you place the binary) must be on your `PATH`. Follow the auth policy
 declared for the lane in `model-lanes/lane-capabilities.tsv`; do not infer lane
 authentication from the separate native-search subscription.
 

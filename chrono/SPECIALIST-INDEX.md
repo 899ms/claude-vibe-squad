@@ -18,7 +18,7 @@ Every task brief must include:
 Before dispatch:
 
 - Check the specialist exists in the TSV map.
-- Check `to_model` is one of `gpt-codex`, `claude`, `gemini`, or `kimi`.
+- Check `to_model` is one of `gpt-codex`, `claude`, `gemini`, `kimi`, or `grok`.
 - Check source namespace is storage only; do not use it to choose a model.
 - Check write scopes do not overlap with active tasks.
 - Add read-only review for high-safety classes.

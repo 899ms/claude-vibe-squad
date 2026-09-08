@@ -16,3 +16,23 @@ files. Entries marked "private source only" are not part of the public projectio
 | `.claude/skills/defensive-pattern-discovery/SKILL.md` | AGPL-3.0-only | Private source only. Generated copy of the above. |
 
 Solidity fixtures carrying their own `SPDX-License-Identifier` headers keep those identifiers.
+
+## Plugins
+
+The plugins under `plugins/` are original Vibe Squad code, but several declare their own licence in
+their `.claude-plugin/plugin.json` manifest instead of taking the root MIT default. That manifest is
+the accompanying notice for the whole plugin tree, so the register lists them here even though they are
+first-party rather than third-party. Whether each publishes is decided by the export path policy
+(`tools/export/policy/path-policy.json`) and was verified per file against that policy.
+
+| Plugin | Licence | Notes |
+|---|---|---|
+| `plugins/chrono-media-studio/` | AGPL-3.0-or-later | Declared in its `.claude-plugin/plugin.json` (`"license": "AGPL-3.0-or-later"`). Publishes. |
+| `plugins/chrono-recon/` | AGPL-3.0-or-later | Declared in its `.claude-plugin/plugin.json` (`"license": "AGPL-3.0-or-later"`). Publishes. |
+| `plugins/chrono-research-arsenal/` | AGPL-3.0-or-later | Declared in its `.claude-plugin/plugin.json` (`"license": "AGPL-3.0-or-later"`). Publishes. |
+| `plugins/chrono-vault/` | AGPL-3.0-or-later | Declared in its `.claude-plugin/plugin.json` (`"license": "AGPL-3.0-or-later"`). Publishes. |
+| `plugins/chrono-dedup/` | AGPL-3.0-or-later | Declared in its `.claude-plugin/plugin.json` (`"license": "AGPL-3.0-or-later"`). Private source only; the export policy withholds the whole tree (`plugins/*-dedup/**`). |
+| `plugins/security-mcp-stack/` | MIT (root default) | Has no `plugin.json`, so it declares no licence of its own and is covered by the root MIT licence. Publishes, except three operator-specific inputs the export policy withholds (`held-solodit.json`, `snyk-preactivation-targets.json`, `preactivate-security-stack.sh`). |
+
+`plugins/security-mcp-stack/` is listed for completeness only: with no manifest it carries no licence
+exception, so the root MIT licence applies to it as it does to any other original material.

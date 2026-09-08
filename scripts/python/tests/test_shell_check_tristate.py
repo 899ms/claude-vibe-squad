@@ -46,20 +46,6 @@ LANE_CLIS = verifier_lane_clis()
 
 _EMPTY_PS = doctor_fixture.EMPTY_PS
 
-_DENY_ARTIFACT_FIND = """#!/bin/bash
-# The artifact target exists, but its enumerator cannot read it. Other doctor
-# find calls retain their real behavior so this is a single-fault control.
-for argument in "$@"; do
-    case "$argument" in
-        */_state/blog-summaries)
-            printf 'find: artifact target unreadable\\n' >&2
-            exit 1
-            ;;
-    esac
-done
-exec "$DOCTOR_REAL_FIND" "$@"
-"""
-
 
 def run_bash(script: Path, *, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -452,7 +438,7 @@ class WriteScopeGuardTriStateTest(unittest.TestCase):
 
 
 class DoctorTargetContractTest(unittest.TestCase):
-    def run_doctor(self, *, deny_artifact_find: bool = False):
+    def run_doctor(self, *, dispatch_log: str | None = None):
         with tempfile.TemporaryDirectory(prefix="doctor-target-contract-") as temp:
             fixture = Path(temp)
             root = fixture / "root"
@@ -482,14 +468,20 @@ class DoctorTargetContractTest(unittest.TestCase):
             environment.pop("CHRONO_DOCTOR_LOG_DIR", None)
             environment.pop("CHRONO_VAULT_ROOT", None)
 
-            if deny_artifact_find:
-                (root / "_state" / "blog-summaries").mkdir(parents=True)
-                find_stub = local_bin / "find"
-                find_stub.write_text(_DENY_ARTIFACT_FIND, encoding="utf-8")
-                find_stub.chmod(0o755)
-                real_find = shutil.which("find")
-                self.assertIsNotNone(real_find, "test control requires a real find")
-                environment["DOCTOR_REAL_FIND"] = str(real_find)
+            # A zero-state install still needs the reviewed, installed guard.
+            # Match the README setup before asking doctor whether it is clean.
+            guard = root / "scripts" / "hooks" / "pre-commit"
+            guard.parent.mkdir(parents=True)
+            shutil.copy2(ROOT / "scripts" / "hooks" / "pre-commit", guard)
+            subprocess.run(
+                ["bash", str(ROOT / "docs/install/install-pre-commit-hook.sh")],
+                cwd=root, env=environment, check=True, capture_output=True,
+            )
+
+            if dispatch_log is not None:
+                ledger = root / "_state" / "dispatch-log.jsonl"
+                ledger.parent.mkdir(parents=True)
+                ledger.write_text(dispatch_log, encoding="utf-8")
 
             result = subprocess.run(
                 ["/bin/bash", str(root / "bin" / "doctor.sh")],
@@ -523,15 +515,26 @@ class DoctorTargetContractTest(unittest.TestCase):
         )
         self.assertIn("what a fresh install looks like", zero_state.stdout)
 
-        unreadable, unreadable_summary = self.run_doctor(deny_artifact_find=True)
+        unreadable, unreadable_summary = self.run_doctor(dispatch_log="{not-json}\n")
         self.assertEqual(
             unreadable.returncode, 2, unreadable.stdout + unreadable.stderr
         )
         self.assertIn(
-            "token-bleed artifact scan failed",
+            "dispatch-log token-spend scan failed",
             unreadable_summary["gate_unknowns"],
         )
         self.assertIn("input was there", unreadable.stdout)
+
+    def test_present_dispatch_volume_still_detects_a_burst(self):
+        empty, summary = self.run_doctor(dispatch_log="")
+        self.assertEqual(empty.returncode, 0, empty.stdout + empty.stderr)
+        self.assertEqual(summary["issue_count"], 0)
+        now = dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        row = json.dumps({"ts": now, "model_lane": "codex"}) + "\n"
+        burst, summary = self.run_doctor(dispatch_log=row * 201)
+        self.assertEqual(burst.returncode, 1, burst.stdout + burst.stderr)
+        self.assertIn("dispatch volume 201 exceeds 200/24h baseline", summary["issues"])
+
 
 
 if __name__ == "__main__":

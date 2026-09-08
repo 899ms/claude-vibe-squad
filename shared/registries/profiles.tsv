@@ -9,12 +9,13 @@ claude.opus5.high	claude	claude-opus-5	high	none	primary
 claude.opus5.max	claude	claude-opus-5	max	none	primary
 claude.opus5.xhigh	claude	claude-opus-5	xhigh	none	primary
 claude.sonnet.default	claude	claude-sonnet-5	default	native-fallback-tail	native-fallback-only
-codex.astra.default	codex	gpt-6-astra	default	none	optional-routine
+codex.astra.default	codex	gpt-6-astra	medium	none	optional-routine
+codex.astra.high	codex	gpt-6-astra	high	none	optional-routine
 codex.astra.max	codex	gpt-6-astra	max	none	optional-routine
-codex.daybreak.default	codex	gpt-daybreak-blue-latest	default	none	optional-routine
+codex.daybreak.default	codex	gpt-daybreak-blue-latest	high	none	optional-routine
 codex.sol.high	codex	gpt-5.6-sol	high	none	primary
 codex.sol.ultra	codex	gpt-5.6-sol	max	ultra	escalation
-codex.terra.default	codex	gpt-5.6-terra	default	none	optional-routine
+codex.terra.default	codex	gpt-5.6-terra	medium	none	optional-routine
 gemini.flash.default	gemini	gemini-3.8-flash-medium	default	none	primary
 gemini.flash.distill	gemini	gemini-3.8-flash-low	low	none	background-transform
 gemini.flash.high	gemini	gemini-3.8-flash-high	high	none	escalation

@@ -50,7 +50,7 @@ class ContradictionDetectionTests(unittest.TestCase):
             },
         )
 
-    def test_second_active_note_on_same_subject_is_flagged(self) -> None:
+    def test_same_subject_is_not_an_automatic_contradiction(self) -> None:
         original = self._record(
             "Executor requires an authorized signer",
             "Only an authorized signer can invoke the executor.",
@@ -68,12 +68,10 @@ class ContradictionDetectionTests(unittest.TestCase):
         ]
         flagged = [event for event in events if event["result"] == "flagged"]
 
-        self.assertEqual(len(events), 2)
-        self.assertEqual(len(flagged), 1)
-        self.assertTrue(flagged[0]["detection_ok"])
-        self.assertEqual(flagged[0]["relationship"], "new")
-        self.assertEqual(flagged[0]["returned_note_ids"], [original["id"]])
-        self.assertEqual(flagged[0]["unreconciled_note_ids"], [original["id"]])
+        self.assertEqual(events, [])
+        self.assertEqual(flagged, [])
+        record_events = list((self.vault_root / "audit" / "record").glob("evt-*.json"))
+        self.assertEqual(len(record_events), 2, "the writer and audit must really run")
 
 
 if __name__ == "__main__":

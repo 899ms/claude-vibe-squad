@@ -25,22 +25,24 @@
 # chrono_pane_has_coordinator <tmux-target>
 # Returns 0 when the coordinator CLI is the live foreground process there.
 chrono_pane_has_coordinator() {
-    local target="$1" pane_pid="" child="" cmd=""
+    local target="$1" pane_pid="" parent="" cmd="" executable=""
     local tmux_bin="${TMUX_BIN:-tmux}"
 
     pane_pid="$("$tmux_bin" display-message -p -t "$target" '#{pane_pid}' 2>/dev/null)" || return 1
     [[ -n "$pane_pid" ]] || return 1
 
-    for child in $(pgrep -P "$pane_pid" 2>/dev/null); do
-        cmd="$(ps -o command= -p "$child" 2>/dev/null)"
+    # Use one ps snapshot for both parent selection and command inspection, so
+    # hook activity cannot split those observations across separate lookups.
+    while read -r parent cmd; do
+        [[ "$parent" == "$pane_pid" ]] || continue
+        executable="${cmd%%[[:space:]]*}"
         # Match the executable path, not a bare word, so an unrelated process
         # that merely mentions "claude" in an argument cannot pass.
-        [[ "$cmd" == */claude* ]] && return 0
-    done
+        [[ "$executable" == */claude* ]] && return 0
+    done < <(ps -eo ppid=,command= 2>/dev/null)
 
-    # Direct exec (no wrapping shell) still reports a usable name.
-    cmd="$("$tmux_bin" display-message -p -t "$target" '#{pane_current_command}' 2>/dev/null)"
-    [[ "$cmd" == "claude" ]] && return 0
+    # A pane_current_command literal fallback is deliberately absent: tmux
+    # reports a versioned executable name here, so an exact match is dead code.
     return 1
 }
 

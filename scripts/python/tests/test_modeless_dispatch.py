@@ -436,7 +436,7 @@ Exercise the prepared-packet modeless path.
                 'is_compatibility_namespace() { [[ "$1" == coding ]]; }\n',
                 encoding="utf-8",
             )
-            runtime_fields = ["sol", "shared", "judgment", "medium"]
+            runtime_fields = ["exodia", "shared", "judgment", "medium"]
             runtime_fields.extend(
                 ["x", "x", "claude", "x", "x", "x", "x", "x", "x", "gpt-codex"]
             )
@@ -468,7 +468,7 @@ Exercise the prepared-packet modeless path.
                 str(ROOT / "scripts/send-task.sh"),
                 "coding",
                 str(body),
-                "sol",
+                "exodia",
                 "claude",
             ]
 

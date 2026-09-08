@@ -494,35 +494,40 @@ class WorkboardHistoryAcceptance(unittest.TestCase):
             self.assertIn(target, state)
             was_active = state[target] == "active"
             state[target] = "blocked"
-            self._append(
-                "block",
-                item_id=target,
-                resume_action=self._resume_action(target),
-            )
             if was_active:
                 self.assertIn(successor, state)
                 state[successor] = "active"
                 self._append(
-                    "switch",
-                    item_id=successor,
+                    "block",
+                    item_id=target,
+                    resume_action=self._resume_action(target),
+                    successor_id=successor,
                     next_action=self._resume_action(successor),
+                )
+            else:
+                self._append(
+                    "block",
+                    item_id=target,
+                    resume_action=self._resume_action(target),
                 )
         elif kind in {"complete", "archive"}:
             target = args[0]
             self.assertIn(target, state)
             was_active = state[target] == "active"
             del state[target]
-            self._append(kind, item_id=target)
             if was_active:
                 self.assertEqual(len(args), 2, f"{kind} of focus needs a successor")
                 successor = args[1]
                 self.assertIn(successor, state)
                 state[successor] = "active"
                 self._append(
-                    "switch",
-                    item_id=successor,
+                    kind,
+                    item_id=target,
+                    successor_id=successor,
                     next_action=self._resume_action(successor),
                 )
+            else:
+                self._append(kind, item_id=target)
         elif kind == "restart":
             self._append("restart")
         elif kind == "compact":
@@ -606,6 +611,98 @@ class WorkboardHistoryAcceptance(unittest.TestCase):
         for history in HISTORIES:
             with self.subTest(history=history["name"]):
                 self._run_history(history)
+
+    def test_terminal_then_switch_interruption_point_cannot_settle_zero_focus(self):
+        self._select_history_paths("terminal-switch-interruption")
+        self._append(
+            "start",
+            item_id="ACTIVE-A",
+            summary="active focus",
+            why="the fixture needs a sole focus",
+            next_action="finish A",
+        )
+        self._append(
+            "queue",
+            item_id="QUEUED-B",
+            summary="queued successor",
+            why="B follows A",
+            resume_action="continue B",
+        )
+        before = self.ledger.read_bytes()
+
+        with self.assertRaisesRegex(
+            workboard.WorkboardConsistencyError,
+            "exactly one active item; found 0",
+        ):
+            self._append("complete", item_id="ACTIVE-A")
+
+        self.assertEqual(self.ledger.read_bytes(), before)
+        view = workboard.load_workboard(self.ledger, strict=True)
+        self.assertEqual(view.active_item_id, "ACTIVE-A")
+        self.assertNotIn("ACTIVE-A", view.terminal_ids)
+
+    def test_blocked_waiting_target_survives_restart_and_cold_capsule(self):
+        for kind in ("complete", "archive", "drop"):
+            with self.subTest(kind=kind):
+                self._select_history_paths(f"blocked-waiting-{kind}")
+                self._append(
+                    "start",
+                    item_id="A",
+                    summary="active A",
+                    why="fixture focus",
+                    next_action="finish A",
+                )
+                queued = self._append(
+                    "queue",
+                    item_id="B",
+                    summary="blocked obligation B",
+                    why="legal approval is still owed",
+                    resume_action="advance B",
+                )
+                self._append(
+                    "block",
+                    item_id="B",
+                    resume_action="B is blocked on legal review",
+                )
+                facts = {
+                    "waiting_id": "B",
+                    "resume_action": "B's own operator wait",
+                }
+                if kind == "drop":
+                    facts.update(
+                        request_id="A", summary="drop A", why="no longer owed"
+                    )
+                else:
+                    facts["item_id"] = "A"
+                self._append(kind, **facts)
+                before = workboard.load_workboard(self.ledger, strict=True)
+
+                self._append("compact")
+                self._append("restart")
+
+                after = workboard.load_workboard(self.ledger, strict=True)
+                self.assertEqual(after.items, before.items)
+                self.assertEqual(after.waiting_work_id, queued.fields["work_id"])
+                self.assertIsNone(after.active_work_id)
+                self.assertFalse(after.idle)
+                self.assertEqual(after.items[0].state, "blocked")
+                self.assertEqual(
+                    after.items[0].resume_action, "B is blocked on legal review"
+                )
+                for max_tokens in (3000, 60):
+                    with self.subTest(max_tokens=max_tokens):
+                        resume.write_capsule(
+                            "blocked-waiting", "resume paused work",
+                            max_tokens=max_tokens,
+                        )
+                        section = self._section(
+                            self.capsule.read_text(encoding="utf-8")
+                        )
+                        self.assertIn(
+                            "- focus: blocked on B — B is blocked on legal review", section,
+                        )
+                        self.assertNotIn("- focus: waiting on B", section)
+                        self.assertNotIn("B's own operator wait", section)
 
     def test_cold_capsule_answers_owed_next_and_why(self):
         history = HISTORIES[-1]
@@ -952,7 +1049,7 @@ class WorkboardHistoryAcceptance(unittest.TestCase):
 
         with self.assertRaisesRegex(
             workboard.WorkboardConsistencyError,
-            r"append rejected: .* was not reflected as queue; added issue.*"
+            r"append rejected: .* \(queue\) introduced issue\(s\):.*"
             r"queue reuses work id W-",
         ):
             self._append(
@@ -1198,17 +1295,18 @@ class WorkboardHistoryAcceptance(unittest.TestCase):
                 why="first focus remains open",
                 next_action="continue A",
             )
-            self._append(
-                "start",
-                item_id="ACTIVE-B",
-                summary="broken implicit promotion",
-                why="second focus should have needed a switch",
-                next_action="continue B",
-            )
+            before = self.ledger.read_bytes()
             with self.assertRaisesRegex(
                 workboard.WorkboardConsistencyError, "exactly one active item"
             ):
-                workboard.load_workboard(self.ledger, strict=True)
+                self._append(
+                    "start",
+                    item_id="ACTIVE-B",
+                    summary="broken implicit promotion",
+                    why="second focus should have needed a switch",
+                    next_action="continue B",
+                )
+            self.assertEqual(self.ledger.read_bytes(), before)
 
         with self.subTest(control="compaction mislabeled terminal"):
             self._select_history_paths("invalid-terminal-set")
@@ -1520,11 +1618,11 @@ class WorkboardMigrationAcceptance(unittest.TestCase):
                     "from pathlib import Path; import sys; "
                     "from chrono_state import workboard; "
                     "print('ready', flush=True); "
-                    "workboard.append_event('queue', path=Path(sys.argv[1]), "
+                    "workboard.append_event('start', path=Path(sys.argv[1]), "
                     "event_id='EV-LOCKED', at='2026-08-27T00:00:00Z', "
                     "item_id='LOCKED-1', summary='serialized writer', "
                     "why='prove the stable registry lock', "
-                    "resume_action='continue after migration'); "
+                    "next_action='continue after migration'); "
                     "print('done', flush=True)"
                 ),
                 str(destination),

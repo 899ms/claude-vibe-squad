@@ -21,7 +21,7 @@ export CHRONO_VAULT_AUDIT_DIR="${CHRONO_VAULT_AUDIT_DIR:-${HOME:-/var/tmp/chrono
 usage() {
   echo "Usage: board-supervisor.sh trusted-launch CONTEXT.json"
   echo "       board-supervisor.sh trusted-launch --strict CONTEXT.json"
-  echo "       board-supervisor.sh detached-launch CONTEXT.json LOG RECEIPT FAILURE_MARKER BUILDER REPO_ROOT TASK_ID LANE RETURN_ARTIFACT NAMESPACE RECONCILER"
+  echo "       board-supervisor.sh detached-launch CONTEXT.json LOG RECEIPT BUILDER REPO_ROOT TASK_ID LANE RETURN_ARTIFACT NAMESPACE RECONCILER"
   echo "NON-model controller: validate -> sealed boundary launch + attestation"
   echo "  trusted-launch  DEFAULT trusted path (operator threat-model reframe 2026-07-22)."
   echo "                  Normal env, own worktree (2.3), scheduler-safe (2.1),"
@@ -41,7 +41,7 @@ if [[ "${1:-}" == "--help" ]]; then
 fi
 case "${1:-}" in
   detached-launch)
-    if [[ "$#" -ne 12 ]]; then
+    if [[ "$#" -ne 11 ]]; then
       usage >&2
       exit 64
     fi
@@ -130,14 +130,34 @@ if [[ "${1:-}" == "detached-launch" ]]; then
   context_file="$2"
   log_path="$3"
   receipt_path="$4"
-  failure_marker="$5"
-  context_builder="$6"
-  vault_root="$7"
-  task_id="$8"
-  lane="$9"
-  return_artifact="${10}"
-  compatibility_namespace="${11}"
-  reconciler="${12}"
+  context_builder="$5"
+  vault_root="$6"
+  task_id="$7"
+  lane="$8"
+  return_artifact="$9"
+  compatibility_namespace="${10}"
+  reconciler="${11}"
+  settlement_diagnostic() {
+    local stage="$1" message="$2" diagnostic
+    diagnostic="board supervisor task=${task_id} lane=${lane} receipt=${receipt_path} stage=${stage}: ${message}"
+    # Receipt staging can fail before FD 4 opens, and settlement runs after
+    # it closes. Append directly to the attempt log at either point. stderr
+    # also retains the diagnostic if the log itself cannot be opened/synced.
+    printf '%s\n' "$diagnostic" >&2
+    "$python_bin" - "$log_path" "$diagnostic" <<'PYDIAGNOSTIC'
+import os
+import sys
+
+try:
+    with open(sys.argv[1], "a", encoding="utf-8") as log:
+        log.write(sys.argv[2] + "\n")
+        log.flush()
+        os.fsync(log.fileno())
+except OSError as exc:
+    print(f"attempt log diagnostic write failed: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+PYDIAGNOSTIC
+  }
   require_vault_root() {
     if [[ ! -d "$vault_root" ]]; then
       # A vanished root cannot publish or reconcile any further state. This is
@@ -172,7 +192,7 @@ if [[ "${1:-}" == "detached-launch" ]]; then
   set +e
   receipt_capture="$(/usr/bin/mktemp "${receipt_path}.capture.XXXXXX")"
   if [[ -z "$receipt_capture" ]]; then
-    printf "receipt capture staging failed\n" >"$failure_marker"
+    settlement_diagnostic capture "receipt capture staging failed"
     exit 70
   fi
   exec 4>>"$log_path"
@@ -319,19 +339,19 @@ PYBLOCKED
         --return-artifact "$return_artifact" \
         --compatibility-namespace "$compatibility_namespace" \
         --reason "${receipt_note}${blocked_detail:+${blocked_detail} | }detached board supervisor status ${supervisor_status:-invalid} exit ${supervisor_rc}; inspect ${log_path}"; then
-        printf "blocked completion publication failed\n" >"$failure_marker"
+        settlement_diagnostic publication "blocked completion publication failed"
         exit 70
       fi
     fi
   fi
   if ! env RESPONSE_MIN_AGE_SECONDS=0 "$reconciler" --task-id "$task_id"; then
-    printf "registry reconciliation failed\n" >"$failure_marker"
+    settlement_diagnostic reconciliation "registry reconciliation failed"
     exit 70
   fi
   if ! "$python_bin" "$context_builder" cleanup-canary \
     --repo-root "$vault_root" \
     --context-file "$context_file" >/dev/null; then
-    printf "canary cleanup failed\n" >"$failure_marker"
+    settlement_diagnostic cleanup "canary cleanup failed"
     exit 70
   fi
   printf 'board_supervisor_rc=%s status=%s\n' \
@@ -2244,7 +2264,6 @@ write_paths = authority["write_paths"]
 read_paths = authority["read_scope"]
 if (
     not isinstance(write_paths, list)
-    or not write_paths
     or not isinstance(read_paths, list)
     or any(not isinstance(item, str) for item in (*write_paths, *read_paths))
 ):
@@ -3267,6 +3286,10 @@ try:
     worker_read_scope = tuple(worker_scope_path(item) for item in authority["read_scope"])
     expected_result_path = worker_scope_path(authority["expected_result_path"])
     expected_outbox_path = worker_scope_path(authority["expected_outbox_path"])
+    if not worker_write_scope:
+        # Artifact delivery is authorized even when the packet grants no code
+        # writes. Keep these exact paths out of scheduler and Git scope.
+        worker_write_scope = tuple(dict.fromkeys((expected_result_path, expected_outbox_path)))
     claims = RuntimeEnvelopeClaims(
         task_id=task_id,
         attempt_id=attempt_id,

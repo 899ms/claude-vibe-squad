@@ -4,8 +4,8 @@
 ``safety_level`` is a role quality floor, while ``review_triggers`` describes
 the change.  These tests keep those axes independent: high-safety roles with an
 empty trigger list are admitted, a declared trigger requires an anti-affinity
-reviewer, and read-only verdict roles retain their narrow reconciler settlement
-exemption.  The verdict set still spans both author families so a genuine
+reviewer, and read-only reviews require typed evidence for terminal settlement.
+The reviewer fixtures span both author families so a genuine
 cross-family review has an eligible landing role.
 
 The dispatch tests drive the real ``bin/send-task.sh`` with ``--dry-run``:
@@ -37,13 +37,15 @@ REPO = normal_checkout_root(Path(__file__).resolve().parents[3])
 SEND_TASK = REPO / "bin" / "send-task.sh"
 RUNTIME_MAP = REPO / "shared" / "specialist-runtime-map.tsv"
 
-sys.path.insert(0, str(REPO / "scripts" / "python"))
+# Reconciler assertions must cover the working tree, not the HEAD-only checkout
+# used by the shell dry-run fixture.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from registry_reconciler import (  # noqa: E402
     LANE_AUTHOR_FAMILY,
-    REVIEW_VERDICT_SPECIALISTS,
-    _is_read_only_review_task,
+    _has_terminal_review_contract,
 )
+import test_review_enforcement as review_tests  # noqa: E402
 
 REMOVED_SAFETY_GATE = "requires mandatory_review:true"
 # `--dry-run` deliberately exits 2 once a packet clears every gate, so a caller
@@ -137,22 +139,14 @@ def packet(
 
 
 class VerdictRoleSetTests(unittest.TestCase):
-    """The role set itself: complete, cross-family, and narrowly applied."""
+    """Reviewer fixtures cover both families; only typed evidence grants exemption."""
 
     def test_skeptic_is_a_verdict_role(self) -> None:
-        self.assertIn("skeptic", REVIEW_VERDICT_SPECIALISTS)
+        self.assertIn("skeptic", VERDICT_ROLES)
 
     def test_skeptic_maps_to_a_medium_safety_claude_judgment_role(self) -> None:
-        # The set is only sound if the runtime map really routes skeptic as a
-        # claude-lane judgment role -- otherwise it names a specialist that
-        # could not run a review dispatch at all.
-        #
-        # safety_level is deliberately NOT part of that soundness argument.
-        # `_is_read_only_review_task` grants the reconciler's read-only-settle
-        # exemption on verdict-set MEMBERSHIP plus an empty write scope; it
-        # never reads safety_level.  So the operator-ratified medium (514ff18)
-        # leaves skeptic a fully valid cross-family reviewer -- it simply
-        # dispatches through the ordinary path instead of the exemption.
+        # The medium-safety judgment role remains a cross-family reviewer;
+        # safety level supplies no evidence for terminal settlement.
         fields = map_row("skeptic")
         self.assertEqual(fields[2], "judgment", msg="capability_class")
         self.assertEqual(fields[3], "medium", msg="safety_level")
@@ -162,10 +156,10 @@ class VerdictRoleSetTests(unittest.TestCase):
         """The safety controls must track the TSV rather than a stale snapshot."""
         self.assertEqual(
             HIGH_SAFETY_VERDICT_ROLES | MEDIUM_SAFETY_VERDICT_ROLES,
-            set(REVIEW_VERDICT_SPECIALISTS),
+            set(VERDICT_ROLES),
             msg="every verdict role must sit in exactly one safety partition",
         )
-        for specialist in sorted(REVIEW_VERDICT_SPECIALISTS):
+        for specialist in sorted(VERDICT_ROLES):
             with self.subTest(specialist=specialist):
                 expected = (
                     "high" if specialist in HIGH_SAFETY_VERDICT_ROLES else "medium"
@@ -179,7 +173,7 @@ class VerdictRoleSetTests(unittest.TestCase):
         reviewer it could legally route to.
         """
         families = set()
-        for specialist in REVIEW_VERDICT_SPECIALISTS:
+        for specialist in VERDICT_ROLES:
             lane = map_row(specialist)[6]
             lane = "gpt-codex" if lane == "codex" else lane
             families.add(LANE_AUTHOR_FAMILY[lane])
@@ -190,23 +184,21 @@ class VerdictRoleSetTests(unittest.TestCase):
         self.assertIn("openai", families)
 
     def test_read_only_classification_still_requires_an_empty_scope(self) -> None:
-        for specialist in sorted(REVIEW_VERDICT_SPECIALISTS):
+        for specialist in sorted(VERDICT_ROLES):
             with self.subTest(specialist=specialist):
-                self.assertTrue(
-                    _is_read_only_review_task(
+                self.assertFalse(
+                    _has_terminal_review_contract(
                         {"specialist": specialist, "write_scope": []}
                     )
                 )
-                self.assertFalse(
-                    _is_read_only_review_task(
-                        {"specialist": specialist, "write_scope": ["bin/send-task.sh"]}
-                    )
-                )
-        self.assertFalse(
-            _is_read_only_review_task(
-                {"specialist": HIGH_SAFETY_IMPLEMENTER[0], "write_scope": []}
-            )
-        )
+                entry = review_tests.TypedReviewContractTests.entry(specialist)
+                self.assertTrue(_has_terminal_review_contract(entry))
+                entry["write_scope"] = ["bin/send-task.sh"]
+                self.assertFalse(_has_terminal_review_contract(entry))
+
+    def test_terminal_review_is_typed_not_role_allowlisted(self) -> None:
+        entry = review_tests.TypedReviewContractTests.entry(HIGH_SAFETY_IMPLEMENTER[0])
+        self.assertTrue(_has_terminal_review_contract(entry))
 
 
 class TriggerReviewGateTests(unittest.TestCase):

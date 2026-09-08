@@ -8,12 +8,15 @@ Operator -> Chrono -> gpt-codex | claude | gemini | kimi | grok -> specialists
 
 Markdown is the interface. Chrono writes task packets; model leads execute them; specialists are markdown role files. This document is the **narrative source of truth** for how routing works. The **machine source of truth** is `shared/specialist-runtime-map.tsv` (per-specialist rows) plus the profile/policy registries; where a specific value is in question, the TSV and registries win.
 
+The runtime map's structured route columns own lane, profile, and reviewer selection. Its `notes` column
+describes role purpose, rationale, and tool constraints; do not maintain another routing table in that prose.
+
 ## 1. Routing principle — flat, quality-fit
 
 Routing is chosen **per specialist on capability**, never by folder location.
 
 - `source_namespace` — where the specialist markdown lives (`coding | security | content | sysmgmt | research | shared`). A **role/specialist-location label. It is not the mailbox (see `compatibility_namespace` below) and never chooses the model.**
-- `compatibility_namespace` — which `departments/<namespace>/` mailbox stores the task packet.
+- `compatibility_namespace` — a legacy compatibility label carried on the packet; it does **not** select the mailbox. Every packet is transported through the canonical mailbox root `departments/coding`, irrespective of this value (`shared/protocol.md` § board-native transport, enforced by `dispatch_context_builder.py` `CANONICAL_MAILBOX_ROOT`).
 - `to_model` — which model/CLI vehicle executes the task, taken from the specialist's row in the runtime map. Each dispatch spawns a fresh CLI of that model; there are no persistent lane windows.
 - Folder location, namespace, and mailbox never determine model choice. Two specialists in the same namespace can run on different lanes; the same capability class can span namespaces.
 
@@ -28,38 +31,69 @@ Every specialist row carries a full chain, resolved from the profile registry:
 - `throughput_lane` + `throughput_profile` + `throughput_policy` — the bulk/downshift route, gated (see §5).
 - `failover_policy`, `escalation_policy` — versioned policy IDs (see §5–§6), not per-row prose.
 
-`*_profile` values resolve through the **profile registry** to an exact model + effort + flags — e.g. `codex.sol.high`, `codex.sol.ultra`, `claude.fable.xhigh`, `claude.fable.max`, `gemini.flash.default`, `gemini.flash.high`, `kimi.k2.7.bulk`. Claude also keeps `claude.opus.default` / `claude.sonnet.default` as **native in-lane fallback only** (`--fallback-model`), not standing lanes.
+`*_profile` values resolve through the **profile registry** to an exact model + effort + flags — e.g. `codex.astra.high`, `codex.astra.max`, `codex.sol.high`, `codex.sol.ultra`, `claude.opus5.xhigh`, `claude.fable.max`, `gemini.flash.high`, `kimi.k2.7.bulk`. Claude also keeps `claude.opus.default` / `claude.sonnet.default` as **native in-lane fallback only** (`--fallback-model`), not standing lanes.
 
 ## 3. Lanes, models, and capability fit
 
-| lane | frontier model (primary) | escalate | best-fit capability |
-|------|--------------------------|----------|---------------------|
-| codex | `gpt-5.6-sol` (high) | `gpt-5.6-sol` Ultra/max | implementation · tests · PoC · experimental probing · code review mechanics · graphics/runtime. Offensive-security specialists lead with `gpt-daybreak-blue-latest` (`model_specialty: cyber`) and fall back to sol. `gpt-6-astra` is available and unbound: independent measurement puts it at parity with sol on general intelligence and +2 on coding agents at 2.5x the rate, and Codex runs both at the same 272k context |
-| claude | `claude-fable-5` (xhigh) | `claude-fable-5` max | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
-| gemini | `gemini-3.8-flash-medium` | `gemini-3.8-flash-high` (high) | content/text · design · media/multimodal · large-context analysis · **search grounding (live · OAuth-backed — Google Search grounding, first-class Rule-8 route)** |
-| kimi | `kimi-code/k3` (high, thinking) | `kimi-code/k3-256k` | allowlisted primaries (summarization and blank-advisor parity); otherwise throughput-only |
-| grok | `grok-4.6` (default) | `grok-4.6` (same model; no higher grok tier is bound) | `smokey` advisor; escalate route for `research` and `bounty-researcher`. Native X/Twitter search, subscription-backed. `read_file` ceiling ~25k tokens — use shell or paged ingest for large documents |
+Use the table for capability fit. Resolve each specialist's primary, backup, escalation, and review models
+from its route columns and `shared/registries/profiles.tsv`; a lane can host several models and effort levels.
+Current primary membership comes from the runtime map's `primary_profile` column.
+Derive model membership and roster counts from the repository root instead of recording a static snapshot:
+
+```sh
+python3 -B - <<'PY'
+import csv
+from collections import Counter
+
+with open("shared/registries/profiles.tsv", newline="") as handle:
+    profiles = {row["profile_id"]: row for row in csv.DictReader(handle, delimiter="\t")}
+with open("shared/specialist-runtime-map.tsv", newline="") as handle:
+    specialists = list(csv.DictReader(handle, delimiter="\t"))
+counts = Counter(
+    (row["primary_lane"], profiles[row["primary_profile"]]["model_id"],
+     profiles[row["primary_profile"]]["effort"])
+    for row in specialists
+)
+print("lane\tprimary model\teffort\tspecialists")
+for (lane, model, effort), count in sorted(counts.items()):
+    print(f"{lane}\t{model}\t{effort}\t{count}")
+print(f"Total specialists: {len(specialists)}")
+PY
+```
+
+| lane | best-fit capability |
+|------|---------------------|
+| codex | implementation · tests · PoC · experimental probing · code review mechanics · graphics/runtime |
+| claude | judgment · planning · safety/security reasoning · security defense · research/synthesis/long-context · developmental content · game/level/audio design |
+| gemini | content/text · design · media/multimodal · large-context analysis · Google Search grounding; see `model-lanes/lane-capabilities.tsv` for grounding and authentication declarations |
+| kimi | allowlisted primaries and gated throughput; primary eligibility is defined in `shared/lane-policy.tsv` |
+| grok | advisory work and mapped research escalation; board launch constraints are described below. `read_file` ceiling ~25k tokens — use shell or paged ingest for large documents |
+
+**Grok board launch constraints.** `scripts/python/dispatch_context_builder.py` builds Grok arguments with
+`--disable-web-search` and requires `xai-api-key` authority; `model-lanes/lane-capabilities.tsv` declares
+`xai-api-key-only`. The mapped research escalation therefore does not supply native X/Twitter search through
+the board launch, and it must not be described as subscription-backed. Any separate search tool requires its
+own role-scoped availability and authorization check.
 
 **Live-launcher model binding.** For every lane, the board attests the resolved
 `shared/registries/profiles.tsv` row and passes that row's `model_id` as the native CLI's exact `--model`
 argument. There is no lane-specific alternate model pin: selected profile, attested model, and launched model
-remain aligned for Codex, Claude, Gemini, and Kimi.
+remain aligned for Codex, Claude, Gemini, Kimi, and Grok.
 
-**Kimi is deny-default as a primary, with a narrow allowlisted primary set.** `shared/lane-policy.tsv` carries
-`primary_default kimi deny` plus **two** operator-ratified `primary_exception` rows:
+**Kimi is deny-default as a primary, with a narrow allowlisted primary set.** Read the `primary_default`
+and `primary_exception` rows in `shared/lane-policy.tsv` for eligibility and exception conditions, then resolve
+each permitted specialist's profile and reviewer from the runtime map. Blank-advisor behavior is defined in
+`shared/specialists/exodia.md`; advisor membership and model families follow the runtime-map rows.
 
-- `summarizer` (`kimi.k3.high`) — low-risk summarization of supplied documents only; Claude review remains required before consequential use.
-- `kestrel` (`kimi.k3.max`) — advisory-only blank-model parity across all five families (`sol`/codex, `fable`/claude, `vega`/gemini, `kestrel`/kimi, `smokey`/grok). MCP work is lead-brokered on Kimi, and Codex is the cross-family reviewer.
-
-For those roles Kimi is a real primary, not a downshift. Outside the allowlist it remains a **gated throughput
-lane** and the data-extraction bulk backup: `kimi.k2.7.bulk` → `kimi-code/kimi-for-coding-highspeed`, marked
-`usage: throughput-only` in the profile registry and admissible only under the §5 downshift conjunction gate.
+For allowlisted roles Kimi is a real primary. Bulk work uses the **gated throughput lane** only where the
+specialist's `throughput_*` fields permit it, under the §5 downshift conjunction gate. Read `backup_*` separately
+for the operational backup; a bulk capability does not create a backup binding.
 Kimi has no native dollar/effort ceiling, so every metered Kimi-mediated child call — on a primary row as much
 as a throughput one — requires an external numeric budget ceiling; never route unbounded metered work to Kimi.
 
 **Gemini owns grounded bounty research.** `bounty-researcher` performs cited prior-audit, historical-exploit, incident, and taxonomy recon. Its outputs feed attack lanes but remain leads until heavy-hitter validation.
 
-**Deep six-round research is a typed large-context handoff, not generic search grounding.** Gemini-primary `research` and `bounty-researcher` keep grounded live search local, while substantive six-round investigations route to Gemini-primary `large-context-analyst`. When that role runs on its Claude backup, it may invoke `/ultra-research` only after a current slash-command discovery probe passes; a present-but-undiscoverable legacy plugin is `needs_tool`, never live availability.
+**Deep six-round research is a typed large-context handoff, not generic search grounding.** `research` and `bounty-researcher` keep grounded live search local, while substantive six-round investigations route to `large-context-analyst` on the lane selected from its runtime-map row. When that role runs on Claude, it may invoke `/ultra-research` only after a current slash-command discovery probe passes; a present-but-undiscoverable legacy plugin is `needs_tool`, never live availability.
 
 **Claude and Codex are the heavy hitters and finding authorities.** Claude is judgment/security-reasoning primary; Codex is implementation, tracing, PoC, and test primary. They back up and review one another under anti-affinity. Agreement from any models is corroboration, not formal review.
 
@@ -96,7 +130,7 @@ failover_policy = failover.conservative.v1   (all rows)
 - HARD signals (`dispatch_ack` failure, confirmed process exit, or a typed provider error) are evidence to surface, not a dispatch trigger. Ambiguous / slow / silent / missed-heartbeat / deadline observations also surface and never select or launch a backup.
 - The ordinary board descriptor, receipt, and registry fences retain process and publication evidence; no parallel attempt ledger exists.
 - After the native Claude fallback chain is observed terminal, the operator may direct Chrono to author a new ordinary board packet using the mapped backup. That packet passes the same dispatch, scope, gate, and review checks as any other task.
-- **Opus** serves two distinct roles, and conflating them is what made this line wrong. `claude.opus.default` (default effort, `native-fallback` flag) is the in-family overload/safety fallback and never a standing lane. `claude.opus5.high` / `.max` / `.xhigh` are `usage: primary` in the registry and are the standing primary route for 13 of 71 specialists, including `architect`, `incident-responder` and `impact-validator`. Carve-out/heightened work exhausted on the in-family chain **surfaces** rather than laundering cross-family.
+- **Opus** has distinct fallback and primary profiles. `claude.opus.default` (default effort, `native-fallback` flag) is the in-family overload/safety fallback and never a standing lane. Resolve standing primary membership from the runtime map's `primary_profile` column; the registry also contains `claude.opus5.high` / `.max` / `.xhigh`. Carve-out/heightened work exhausted on the in-family chain **surfaces** rather than laundering cross-family.
 
 ## 7. Dispatch contract
 
@@ -105,7 +139,7 @@ Every non-trivial task packet names:
 - `to_model`: `gpt-codex | claude | gemini | kimi | grok`
 - `specialist`: canonical specialist name
 - `source_namespace`: `coding | security | content | sysmgmt | research | shared`
-- `compatibility_namespace`: mailbox that stores the packet
+- `compatibility_namespace`: legacy label; the packet is always stored in the canonical `departments/coding` mailbox (see § 1)
 - `write_scope`: exact writable paths, or `[]`
 - `review_model`: read-only reviewer lane, or `none`
 - `mandatory_review`: `true | false`
@@ -151,4 +185,4 @@ The dispatcher enforces the map; the recurring failure is *selecting* the wrong 
 1. **Pick the most specific specialist for the task shape** — never a generalist by default. A generalist absorbing specific work starves the specific role and loads a weaker-fit prompt.
 2. **Never route review / audit / verify work to an implementer.** Review belongs to `code-reviewer`, `skeptic`, `impact-validator`, `vibecoding-check`, or `content-verifier` (or the packet's `review_model`). An implementer reviewing lacks the reviewer's adversarial + `anti_affinity: author_family` discipline.
 3. **`systems-engineer` is not the Codex-lane default.** Per its own brief it fires for genuine low-level / cross-arch / SIMD / runtime work only (~5% of coding work). Default general implementation to `backend-engineer`, infra/tool-wiring to `devops-engineer`, persistence to `database-engineer`, hot-paths to `performance-optimizer`, docs to `technical-writer`, review to `code-reviewer`/`skeptic`.
-4. **Deliberately fan across all four models.** Gemini owns grounded research (`bounty-researcher`, Google Search grounding), `large-context-analyst`, content/text, and tool-gated media; Kimi owns the allowlisted `summarizer` and `kestrel` primaries plus bulk throughput under the downshift gate; Codex owns `experimental-attacker` breadth (leads only), and Claude and Codex remain the heavy hitters that cross-review one another. Concentrating on two lanes wastes the roster and the cross-family independence that review depends on.
+4. **Deliberately use the mapped lanes.** Select grounded research, large-context analysis, content/text, tool-gated media, summarization, and advisory specialists by task shape, then resolve their execution and review lanes from the runtime map. Apply primary eligibility from `shared/lane-policy.tsv` and the downshift gate to bulk work. Concentrating on a subset of lanes wastes the roster and the cross-family independence that review depends on.

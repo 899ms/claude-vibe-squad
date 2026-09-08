@@ -26,7 +26,7 @@ handed off; remediation (mutating the harness) routes to the owning implementer,
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall) |
 | **S1** Frame (audit scope) | `harness-optimizer`, `prompt-engineer` | — | `scope-decomposition` | — |
-| **S3** Produce (drift + reachability audit) | `harness-optimizer`, `prompt-engineer` | `chrono-vault`, `codex --sandbox`, `claude --worktree` | `mcp-reachability-audit`, `prompt-cache-discipline`, `prompt-cache-hit-monitoring` | — |
+| **S3** Produce (drift + reachability audit) | `harness-optimizer`, `prompt-engineer` | `chrono-vault`, `codex --sandbox`, `claude --worktree` | `wirework-preflight` | — |
 | **S4** Verify (findings triage) | `harness-optimizer`, `skeptic` | — | — | — |
 | **S5** Review/Gate | `skeptic`, `cross-family-reviewer` | `codex review`, `claude --from-pr` | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer) |
 | **S6** Ship/Deliver (audit report + handoff) | `harness-optimizer`, `technical-writer` | `chrono-obsidian` | — | audit-only — remediation routes to the owning implementer |
@@ -35,7 +35,7 @@ handed off; remediation (mutating the harness) routes to the owning implementer,
 **Notes.** `harness-optimizer` audits/reviews only — its runtime charter says implementation is a future
 split, so this card produces findings + a handoff, never a harness mutation (that would be a
 `self-extension`/implementation task under its own gates). MCP reachability uses the lane shell + the
-`mcp-reachability-audit` methodology. `parity-probe` now points only to retained Project/Bounty v2 board
+`wirework-preflight` MCP-reachability probe step. `parity-probe` now points only to retained Project/Bounty v2 board
 canaries; it runs no provider command and grants no liveness by itself. Retired `chrono-content-engineer` and
 `chrono-catalog` spellings are historical findings, not current routes, and must not be reintroduced by an
 audit or compatibility repair.

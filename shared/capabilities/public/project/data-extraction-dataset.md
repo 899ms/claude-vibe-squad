@@ -27,9 +27,9 @@ overlay **and** the sensitive-topic durable-note operator approval.
 | Step | Specialists | Tools `` | Skills `(type)` | Gate / Overlay |
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall) |
-| **S1** Frame (data contract + schema) | `product-manager`, `data-extraction-engineer` | — | `schema-inference`, `scope-decomposition` | privacy overlay if PII |
-| **S2** Design (extraction plan) | `data-extraction-engineer` | — | `schema-inference` | — |
-| **S3** Produce (parse machine-readable + clean + shape) | `data-extraction-engineer` | `firecrawl`, `Apify`, `Brave Search`, `Serper` | `data-cleaning-pipeline`, `structured-data-authoring` | local-code branch (shell/script) for CSV/JSON/HTML/tabular/plain-text; ALL PDF + OCR = `needs_tool`; `Apify` scraping requires a target-authorization + spend gate |
+| **S1** Frame (data contract + schema) | `product-manager`, `data-extraction-engineer` | — | `scope-decomposition` | privacy overlay if PII |
+| **S2** Design (extraction plan) | `data-extraction-engineer` | — | — | — |
+| **S3** Produce (parse machine-readable + clean + shape) | `data-extraction-engineer` | `firecrawl`, `Apify`, `Brave Search`, `Serper` | `structured-data-authoring` | local-code branch (shell/script) for CSV/JSON/HTML/tabular/plain-text; ALL PDF + OCR = `needs_tool`; `Apify` scraping requires a target-authorization + spend gate |
 | **S4** Verify (schema + integrity check) | `data-extraction-engineer`, `skeptic` | — | `structured-data-authoring` | privacy overlay if PII |
 | **S5** Review/Gate | `code-reviewer`, `cross-family-reviewer` | — | — | review overlay (if the dataset feeds a downstream decision) |
 | **S6** Ship/Deliver (dataset) | `data-extraction-engineer` | `chrono-obsidian` | `structured-data-authoring` | — |

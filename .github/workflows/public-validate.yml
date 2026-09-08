@@ -43,6 +43,9 @@ on:
     - cron: "33 11 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 # Match the private workflow's event-preserving de-duplication. The run id
 # keeps scheduled/manual validation independent from commit-triggered runs.
 concurrency:
@@ -59,7 +62,7 @@ jobs:
     if: github.repository == 'mtarcure/claude-vibe-squad'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Same defect as squad-validate.yml's shell-syntax step: `bash -n` treats
       # only its first argument as a script and the rest as positional

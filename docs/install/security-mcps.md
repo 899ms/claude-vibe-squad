@@ -72,18 +72,24 @@ exit 127 is not an install:
 
 ## Wiring it into the lanes
 
-Installing the wrapper does not by itself make the three servers reachable. They
-are declared per-lane in `model-lanes/claude/.mcp.json` and
-`model-lanes/gpt-codex/.codex/config.toml`, and **those files currently hold an
-absolute path into the maintainer's home directory**. On any other machine that
-path does not resolve, so after installing the wrapper you must point those
-declarations at your own `CONTEXT_PROTECTOR_DIR`.
+Installing the wrapper does not by itself make the three servers reachable. A lane
+must declare a server that runs `mcp-context-protector.sh`, pointed at your own
+`CONTEXT_PROTECTOR_DIR`.
 
-Find them with:
+In the maintainer's tree those declarations live per-lane in `model-lanes/claude/.mcp.json`
+(Claude Code MCP config) and `model-lanes/gpt-codex/.codex/config.toml` (Codex config), and
+**both hold an absolute path into the maintainer's home directory**. These two files are
+**withheld from the public export** — a public clone does not ship them, so on a fresh clone
 
 ```bash
 grep -rn 'mcp-context-protector' model-lanes/
 ```
+
+returns nothing. Do not hunt for a shipped file to edit; there is none. Instead add the
+declaration to your own lane config in each CLI's native format (`.mcp.json` for Claude Code,
+`.codex/config.toml` for Codex), declaring a server whose command execs
+`$CONTEXT_PROTECTOR_DIR/mcp-context-protector.sh`. In the maintainer's tree, the same `grep`
+above is how you find the existing entries to repoint at a new `CONTEXT_PROTECTOR_DIR`.
 
 Each entry also names a pinned `--server-config-file`. Review the pinned schema
 before approving it; the guard is only meaningful if you have looked at what it

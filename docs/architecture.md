@@ -47,7 +47,7 @@ operator
 Chrono in tmux ── selects mode, capability, specialist, scope, and review
    │
    ▼
-Markdown task packet in departments/<namespace>/inbox/
+Markdown task packet in departments/coding/inbox/
    │
    ▼
 detached board supervisor ── one git worktree per attempt
@@ -92,7 +92,7 @@ Profiles resolve to exact model and effort settings through
 MCP servers are tools, not model transports. They can provide private memory,
 research, browser automation, code intelligence, sequential thinking, or
 governed media operations. They never proxy a specialist call to Codex, Claude,
-Gemini, or Kimi. Media and other service APIs may consume their own provider
+Gemini, Grok, or Kimi. Media and other service APIs may consume their own provider
 credits when an approved Project capability invokes them; that is separate from
 the model lane.
 
@@ -140,6 +140,26 @@ for review, or surface the result to the operator.
 The canonical per-path recipient, timing, and unattended behavior is the
 [Completion recipient contract](../shared/protocol.md#completion-recipient-contract).
 That table is authoritative if this topology summary ever drifts.
+
+## Transcript retention
+
+The authoritative default is `DEFAULT_TRANSCRIPT_RETENTION_DAYS` in
+[`scripts/python/dispatch_log.py`](../scripts/python/dispatch_log.py), currently
+30 days. That library owns the retention behavior and the standalone CLI
+default; this section is the prose home for its relationship to nightly cleanup.
+
+[`bin/prune-board-worktrees.sh`](../bin/prune-board-worktrees.sh) currently
+passes its separately maintained `TRANSCRIPT_RETENTION_DAYS` as an explicit override.
+That argument controls nightly execution even if the library default changes.
+The library wins as the policy authority; the pruner's copy is implementation
+debt, and equality between the two constants is not enforced by the existing
+literal-value wiring test. Changing this prose does not change either default.
+
+Retention is independent of worktree cleanup. Descriptor-referenced transcripts
+for registry entries in `LIVE_STATUSES` are retained regardless of age.
+Other transcripts become eligible when their file modification time is older
+than the retention cutoff, including those with no live registry entry.
+Report mode does not remove them; removal requires explicit `--apply`.
 
 ## The process/receipt fact seam
 
@@ -192,8 +212,7 @@ mailboxes, and generated state remain separate; see
 support process. It exposes health, bearer-protected read-only task views, an
 event stream, utility-MCP/catalog calls, and a separate Gemini API summarizer.
 `bin/squad up` does not start it, it has no task-submission route, and the board
-does not depend on it. Its metered summarizer is not one of the four specialist
-model lanes.
+does not depend on it. Its metered summarizer is not one of the specialist model lanes.
 
 The dormant automatic-failover subsystem is retired. Operational failures surface
 through the ordinary receipt and reconciliation path. If the operator chooses the

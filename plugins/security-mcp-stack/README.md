@@ -56,7 +56,7 @@ Google Model Armor was removed from this stack on 2026-08-10 (operator decision)
 3. From an environment inheriting `SOLODIT_API_KEY`, run the Context Protector wrapper with `--review-server --server-config-file _state/tooling-arsenal-2026-07-18/mcp-context-protector/servers.json --command-args ...` once for each exact child command in the lane config: `/opt/homebrew/bin/semgrep mcp`, the state-local `slither-mcp --disable-metrics`, and `/opt/homebrew/bin/node` plus the production Solodit `dist/index.js`. Inspect each schema before approving it.
 4. Run `plugins/security-mcp-stack/preactivate-security-stack.sh`; its `--ci` result must be zero. Any finding, runtime failure, missing credential, or unavailable verification service aborts the restart.
 5. Run `python3 plugins/security-mcp-stack/validate_staged.py`; require `status: pass` and `context_config_state: three-reviewed-schemas-approved`.
-6. Restart Claude and gpt-codex once through the normal squad launcher. Do not manually kill individual panes. Gemini and Kimi remain deferred.
+6. Restart Claude and gpt-codex once through the normal squad launcher. Do not manually kill individual panes. Gemini, Kimi, and Grok remain deferred.
 7. In each restarted lane, require `tools/list` plus read-only synthetic fixture calls through all three guarded servers. Retain pinning/tool-call evidence; a config/list success alone is insufficient.
 8. Run the existing chrono-vault record/recall parity probes. Promote a lane only if every applicable probe passes; otherwise restore the previously reviewed live registry inputs and perform one controlled launcher restart.
 

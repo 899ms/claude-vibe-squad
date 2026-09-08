@@ -26,7 +26,7 @@ primary_default	grok	deny	all	Grok primary remains forbidden unless an explicit 
 primary_default	kimi	deny	all	Kimi primary remains forbidden unless an explicit role exception exists.
 primary_exception	grok	allow	smokey	Operator-ratified 2026-08-30: persona-blank, artifact-only advisor used as the first and only specialist binding that proves the Grok lane.
 primary_exception	kimi	allow	summarizer	Narrow operator-ratified low-risk supplied-document summarization exception; Claude review remains required before consequential use.
-primary_exception	kimi	allow	kestrel	Operator-ratified 2026-08-25: blank-advisor parity across all four model families. sol (codex) and fable (claude) already existed, so a persona-blank cross-family second opinion was reachable on only two of four lanes, which defeats its purpose. kestrel is advisory only: it produces an opinion, never an implementation, and per shared/specialists/sol.md it counts as formal independent review only when reviewer and author families satisfy the packet's anti-affinity requirement. MCP is lead-brokered on this lane (Kimi subagents cannot hold MCP), and codex is the ratified cross-family reviewer.
+primary_exception	kimi	allow	kestrel	Operator-ratified 2026-08-25: persona-blank advisory primary exception. Advisory behavior and formal-review anti-affinity are defined in shared/specialists/exodia.md; read the runtime-map rows for current advisor membership and reviewer bindings. MCP is lead-brokered on this lane (Kimi subagents cannot hold MCP).
 vocabulary	anti_affinity	author_family	all	Review anti-affinity.
 vocabulary	anti_affinity	none	all	No anti-affinity.
 vocabulary	capability_class	code_review	all	Code review.

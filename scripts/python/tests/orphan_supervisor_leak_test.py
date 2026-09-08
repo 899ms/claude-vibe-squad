@@ -216,7 +216,6 @@ class OrphanSupervisorLeakTests(unittest.TestCase):
                     str(root / "context.json"),
                     str(root / "supervisor.log"),
                     str(root / "receipt.json"),
-                    str(root / "settlement-error"),
                     str(root / "context-builder.py"),
                     str(root),
                     "TASK-ORPHAN-SUPERVISOR-FIXTURE",

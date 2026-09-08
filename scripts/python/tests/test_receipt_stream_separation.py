@@ -221,7 +221,6 @@ class DetachedLaunchTests(unittest.TestCase):
         log = Path(f"{base}.log")
         receipt = Path(f"{base}.receipt.json")
         dispatch = Path(f"{base}.dispatch.json")
-        marker = root / "settlement-error"
         context = Path(f"{base}.context.json")
         context.write_text(json.dumps(REJECTED_CONTEXT), encoding="utf-8")
         log.touch()
@@ -234,7 +233,6 @@ class DetachedLaunchTests(unittest.TestCase):
                 str(context),
                 str(log),
                 str(receipt),
-                str(marker),
                 "/usr/bin/false",  # context builder: blocked publication fails
                 str(root),
                 task,

@@ -26,9 +26,9 @@ vulnerability research against an existing target, use `bounty/smart-contract-we
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall) |
 | **S1** Frame (spec) | `product-manager`, `architect` | — | `requirements-elicitation`, `scope-decomposition` | — |
-| **S2** Design (contract arch + invariants) | `architect`, `smart-contract-engineer` | `context7` | `dependency-cycle-audit`, `gas-optimization-pattern` | — |
+| **S2** Design (contract arch + invariants) | `architect`, `smart-contract-engineer` | `context7` | `dependency-cycle-audit` | — |
 | **S3** Produce (EVM/Solidity implement + unit test) | `smart-contract-engineer` | `forge`, `cast`, `anvil`, `chisel` | `known-advisory-backport-check` | financial |
-| **S4** Verify (EVM/Solidity static + property/fuzz) | `test-engineer`, `security-analyst` | `slither`, `myth`, `echidna`, `medusa`, `halmos`, `aderyn` | `behavior-preservation-test` | security review overlay (heightened-risk) |
+| **S4** Verify (EVM/Solidity static + property/fuzz) | `test-engineer`, `security-analyst` | `slither`, `myth`, `echidna`, `medusa`, `halmos`, `aderyn` | — | security review overlay (heightened-risk) |
 | **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer`, `operator` | `codex review`, `claude --from-pr` | — | review overlay (mandatory cross-family; review tools MECHANICS ONLY — never replace the independent cross-family reviewer); mainnet deploy operator-gated |
 | **S6** Ship/Deliver (deploy) | `smart-contract-engineer`, `devops-engineer` | `plugin:github:github` | — | `public_release`, `production_mutation` (deploy) |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` | — | memory overlay (record) |

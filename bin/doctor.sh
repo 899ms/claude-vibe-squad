@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude-Vibe-Squad doctor — health check + token-bleed detection.
+# Claude-Vibe-Squad doctor — health check + dispatch-volume diagnostics.
 # Verifies environment, reports anomalies. Surfaced in morning brief.
 #
 # Phases:
@@ -21,9 +21,7 @@
 #   7b. Status poller singleton — exactly one vs-lane-status.sh poller for this
 #      root, identified by shared/process-identity.sh's exact-positional argv
 #      predicate (never pgrep/substring), and tracked by its pidfile
-#   8. Token-bleed proxy: LLM-artifact volume vs its 7-day average, plus the
-#      24h dispatch-log count (there is NO per-CLI token counter — the per-pane
-#      report was retired with the persistent-lane architecture)
+#   8. Dispatch-volume proxy: 24h dispatch-log count (not a token counter)
 #   9. Specialist dispatch volume last 24h
 #   9b. Notification-spine liveness: a delivered-nudge receipt newer than the
 #      newest chrono-queue entry (a severed spine parks work in silence)
@@ -76,6 +74,50 @@ except VaultRootError as exc:
     raise SystemExit(1)
 PY
 }
+
+check_pre_commit_hook() {
+    local git_common_dir expected_hooks_dir effective_hooks_dir entrypoint installed_guard expected_entrypoint
+    git_common_dir="$(git -C "${VAULT_ROOT}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || {
+        printf 'pre-commit hook health: BROKEN: could not resolve Git common directory\n' >&2
+        return 1
+    }
+    expected_hooks_dir="${git_common_dir}/hooks"
+    effective_hooks_dir="$(git -C "${VAULT_ROOT}" rev-parse --path-format=absolute --git-path hooks 2>/dev/null)" || {
+        printf 'pre-commit hook health: BROKEN: could not resolve effective hooks directory\n' >&2
+        return 1
+    }
+    if [[ "${effective_hooks_dir}" != "${expected_hooks_dir}" ]]; then
+        printf 'pre-commit hook health: BROKEN: effective hooks directory is %s, expected %s; remove core.hooksPath from the origin below and rerun the installer\n' \
+            "${effective_hooks_dir}" "${expected_hooks_dir}" >&2
+        git -C "${VAULT_ROOT}" config --show-origin --get-all core.hooksPath >&2 || true
+        return 1
+    fi
+
+    entrypoint="${expected_hooks_dir}/pre-commit"
+    installed_guard="${expected_hooks_dir}/vibe-squad-pre-commit"
+    if [[ -L "${entrypoint}" || ! -f "${entrypoint}" || ! -x "${entrypoint}" ]]; then
+        printf 'pre-commit hook health: BROKEN: %s must be a regular executable file, not a symlink\n' "${entrypoint}" >&2
+        return 1
+    fi
+    if ! grep -Fq 'vibe-squad-managed-pre-commit/v1' "${entrypoint}"; then
+        printf 'pre-commit hook health: BROKEN: %s is not the managed Vibe Squad entrypoint\n' "${entrypoint}" >&2
+        return 1
+    fi
+    expected_entrypoint='#!/bin/sh
+# vibe-squad-managed-pre-commit/v1
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd) || exit 1
+exec python3 "${hook_dir}/vibe-squad-pre-commit"'
+    if [[ "$(cat "${entrypoint}")" != "${expected_entrypoint}" ]]; then
+        printf 'pre-commit hook health: BROKEN: %s does not match the reviewed managed entrypoint\n' "${entrypoint}" >&2
+        return 1
+    fi
+    if [[ -L "${installed_guard}" || ! -f "${installed_guard}" || ! -x "${installed_guard}" ]]; then
+        printf 'pre-commit hook health: BROKEN: %s must be a regular executable snapshot, not a symlink\n' "${installed_guard}" >&2
+        return 1
+    fi
+
+    printf 'pre-commit hook health: OK: managed guard is active outside the worktree at %s\n' "${entrypoint}"
+}
 # --- Mode selection ---------------------------------------------------------
 # Parsed as a loop rather than as a single positional test so that adding a
 # second flag did not make the first one order-dependent, and so an unknown
@@ -92,19 +134,24 @@ while [[ "$#" -gt 0 ]]; do
             check_private_vault_root
             exit $?
             ;;
+        --check-pre-commit-hook)
+            check_pre_commit_hook
+            exit $?
+            ;;
         --deep)
             DOCTOR_DEEP=1
             shift
             ;;
         --help|-h)
-            printf 'usage: doctor.sh [--deep] [--check-private-vault-root]\n\n'
+            printf 'usage: doctor.sh [--deep] [--check-private-vault-root] [--check-pre-commit-hook]\n\n'
             printf '  (no flag)  fast pre-flight; what bin/launch-squad.sh gates on\n'
             printf '  --deep     also run checks costlier than the launch budget\n'
+            printf '  --check-pre-commit-hook  verify the managed local guard only\n'
             exit 0
             ;;
         *)
             printf 'doctor.sh: unknown argument: %s\n' "$1" >&2
-            printf 'usage: doctor.sh [--deep] [--check-private-vault-root]\n' >&2
+            printf 'usage: doctor.sh [--deep] [--check-private-vault-root] [--check-pre-commit-hook]\n' >&2
             exit 64
             ;;
     esac
@@ -585,6 +632,14 @@ else
                 "Missing ${#MISSING_LAUNCH_DEPS[@]} of ${#SQUAD_REQUIRED_COMMANDS[@]} required command(s): ${MISSING_LAUNCH_DEPS[*]}. bin/launch-squad.sh gates on this exact list and will refuse to start. Fix: ${SQUAD_REQUIRED_COMMANDS_HINT:-install the missing commands}"
         fi
     fi
+fi
+
+echo "" >> "${DOCTOR_LOG}"
+echo "## Pre-commit Guard" >> "${DOCTOR_LOG}"
+if PRE_COMMIT_HEALTH="$(check_pre_commit_hook 2>&1)"; then
+    note_ok "managed pre-commit guard active outside the worktree" "${PRE_COMMIT_HEALTH}"
+else
+    note_issue "managed pre-commit guard is missing, inactive, or unsafe" "${PRE_COMMIT_HEALTH}"
 fi
 
 echo "" >> "${DOCTOR_LOG}"
@@ -2361,53 +2416,10 @@ else
     fi
 fi
 
-# --- 8. Token usage proxy (squad-driven LLM artifact volume) ---
-# We don't have direct token counters per CLI, but we know the squad's own
-# scripts produce one artifact per LLM call. Counting today's vs the trailing
-# 7-day average gives an anomaly signal.
+# --- 8. Dispatch-volume proxy ---
+# A high-water-mark signal for retry loops, not a token counter or cost breakdown.
 echo "" >> "${DOCTOR_LOG}"
-echo "## Token Usage (proxy via artifact count)" >> "${DOCTOR_LOG}"
-ARTIFACT_DIRS=()
-for sub in blog-summaries podcast-briefs dream-logs; do
-    [[ -d "${VAULT_ROOT}/_state/${sub}" ]] && ARTIFACT_DIRS+=("${VAULT_ROOT}/_state/${sub}")
-done
-if [[ "${#ARTIFACT_DIRS[@]}" -eq 0 ]]; then
-    # An absent target set is not evidence of a clean artifact volume, but it
-    # is normal before any artifact producer has run. Keep it loud and separate
-    # from a present target that find could not enumerate.
-    note_absent_input "token-bleed artifact scan has no source directories" \
-        "none of _state/{blog-summaries,podcast-briefs,dream-logs} exists — artifact volume was NOT measured"
-else
-    artifact_scan_rc=0
-    TODAY_ARTIFACTS=$(find "${ARTIFACT_DIRS[@]}" -name "${DATE}-*" -type f 2>/dev/null \
-        | wc -l | tr -d ' ') || artifact_scan_rc=$?
-    WEEKLY_ARTIFACTS=$(find "${ARTIFACT_DIRS[@]}" -name '*.md' -mtime -7 -type f 2>/dev/null \
-        | wc -l | tr -d ' ') || artifact_scan_rc=$?
-    if [[ "${artifact_scan_rc}" -ne 0 \
-        || ! "${TODAY_ARTIFACTS}" =~ ^[0-9]+$ \
-        || ! "${WEEKLY_ARTIFACTS}" =~ ^[0-9]+$ ]]; then
-        note_gate_unknown "token-bleed artifact scan failed" \
-            "find could not enumerate the artifact sources — artifact volume is UNKNOWN"
-    else
-        WEEKLY_AVG=$(( WEEKLY_ARTIFACTS / 7 ))
-        note_info "Today: ${TODAY_ARTIFACTS} artifacts"
-        note_info "7d total: ${WEEKLY_ARTIFACTS} (avg/day: ${WEEKLY_AVG})"
-        # Flag if today is 3x the weekly average AND average isn't trivial.
-        if [[ ${WEEKLY_AVG} -ge 3 ]] && [[ ${TODAY_ARTIFACTS} -gt $((WEEKLY_AVG * 3)) ]]; then
-            note_issue "token-bleed suspect: today=${TODAY_ARTIFACTS} vs weekly_avg=${WEEKLY_AVG}" \
-                "Anomaly: today's volume is >3x weekly average — possible token-bleed"
-        else
-            note_ok "token-bleed artifact volume within threshold" \
-                "Artifact volume is within threshold (today=${TODAY_ARTIFACTS}, weekly_avg=${WEEKLY_AVG})"
-        fi
-    fi
-fi
-
-# Primary token-spend signal: dispatch count from dispatch-log.jsonl (last 24h).
-# Catches retry loops with single-artifact output (which the artifact-count
-# proxy above misses). This is a high-water-mark check, not a cost breakdown --
-# the per-pane report that once complemented it belonged to the retired
-# persistent-lane architecture and was removed with it.
+echo "## Dispatch Volume (last 24h)" >> "${DOCTOR_LOG}"
 if [[ ! -f "${VAULT_ROOT}/_state/dispatch-log.jsonl" ]]; then
     # No ledger is not a measured zero. A present empty ledger is the clean
     # control; an absent ledger is the loud, non-gating zero-state. A present

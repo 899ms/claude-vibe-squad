@@ -193,6 +193,31 @@ class DuplicateBlobGuardTests(unittest.TestCase):
         self.assertIn("ONE-FACT-ONE-HOME PASS", positive.stdout)
         self.assertIn("PASS: one fact, one home", positive.stdout)
 
+    def test_three_member_group_counts_as_one_issue(self) -> None:
+        (self.repo / "third.txt").write_text("same bytes\n", encoding="utf-8")
+        self.run_git("add", "--", "third.txt")
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("ONE-FACT-ONE-HOME FAIL: 1 policy issue(s)", result.stderr)
+        for name in ("first.txt", "second.txt", "third.txt"):
+            self.assertIn(f"  {name!r}", result.stderr)
+
+    def test_groups_and_stale_declarations_count_independently(self) -> None:
+        self.write_declaration()
+        (self.repo / "third.txt").write_text("same bytes\n", encoding="utf-8")
+        for name in ("fourth.txt", "fifth.txt"):
+            (self.repo / name).write_text("second group\n", encoding="utf-8")
+        self.run_git("add", "--", "third.txt", "fourth.txt", "fifth.txt")
+
+        result = self.run_checker()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("ONE-FACT-ONE-HOME FAIL: 3 policy issue(s)", result.stderr)
+        self.assertEqual(result.stderr.count("undeclared identical-blob group"), 2)
+        self.assertIn("stale declaration 'fixture-pair'", result.stderr)
+
     def test_exact_staged_specialist_skill_mirror_is_validator_backed(self) -> None:
         self.replace_default_duplicate_with_distinct_files()
         self.write_skill_mirror()

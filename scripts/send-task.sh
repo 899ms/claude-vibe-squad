@@ -135,7 +135,7 @@ map_field() {
 }
 
 if [[ -z "${TO_MODEL}" ]]; then
-    # A namespace selects mailbox storage, never a model. The only valid
+    # A source namespace locates specialist markdown, never a model. The only valid
     # omitted-model fallback is the specialist's primary lane in the runtime map.
     if [[ "${SPECIALIST}" == "none" ]]; then
         echo "ERROR: omitted to-model requires a canonical specialist"
@@ -218,11 +218,11 @@ priority: normal
 status: new
 created: $(date -u +%FT%TZ)
 deadline: none
-write_scope: [departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md${WRITE_SCOPE:+, ${WRITE_SCOPE}}]
+write_scope: [departments/coding/outbox/${TASK_ID}-response.md${WRITE_SCOPE:+, ${WRITE_SCOPE}}]
 ${DELETE_PATHS_LINE}
 ${REVIEWS_LINE}read_context: []
-return_artifact: departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md
-compatibility_namespace: ${COMPAT_NAMESPACE}
+return_artifact: departments/coding/outbox/${TASK_ID}-response.md
+compatibility_namespace: coding
 specialist: ${SPECIALIST}
 to_model: ${TO_MODEL}
 model_override_reason: ${MODEL_OVERRIDE_REASON:-none}
@@ -263,6 +263,6 @@ if [[ "${DRY_RUN}" == "true" ]]; then
 fi
 VAULT_ROOT="${VAULT_ROOT}" "${HARDENED_DISPATCH}" "${DISPATCH_ARGS[@]}"
 
-echo "  File: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/inbox/${TASK_ID}.md"
-echo "  Reply expected at: ${VAULT_ROOT}/departments/${COMPAT_NAMESPACE}/outbox/${TASK_ID}-response.md"
+echo "  File: ${VAULT_ROOT}/departments/coding/inbox/${TASK_ID}.md"
+echo "  Reply expected at: ${VAULT_ROOT}/departments/coding/outbox/${TASK_ID}-response.md"
 echo "  Model lane: ${TO_MODEL}"

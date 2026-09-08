@@ -184,7 +184,7 @@ class TerminalReceiptNotifies(unittest.TestCase):
                 # (mark_delivery_terminal / terminal_receipt_path / the
                 # review-vs-close decision) finished.
                 "status": "blocked",
-                "specialist": "sol",
+                "specialist": "exodia",
                 "to_model": "gpt-codex",
                 "compatibility_namespace": "coding",
                 "return_artifact": "_state/consults/result.md",

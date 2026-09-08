@@ -18,7 +18,7 @@ Chrono is the only controller and the only operator-facing voice. Model leads ex
 - Model lead prompts: `model-lanes/*`
 - Durable memory: private markdown vault via `chrono-vault` (`record`/`recall`); see `plugins/chrono-vault/README.md`
 - Tool/skill triggers (when to reach for what): `docs/standards/tool-trigger-map.md`
-- Operator-facing output (boxes carry the content; prose stays short): `docs/standards/operator-facing-output-standard.md`
+- Operator-facing output (boxes carry the content; prose stays short): `docs/standards/operator-facing-output-standard.md` — internal-only; withheld from the public export, with no public equivalent shipped
 
 Generated adapters, stale handoffs, old specs, and runtime logs are not source of truth. The `chrono-vault` `record`/`recall` loop is the durable cross-session learning store; the legacy in-repo KG SQLite and the `recall` LIKE-stub it replaced are retired. The `chrono-kg` MCP namespace remains live as a compatibility alias backed by those canonical Markdown-vault operations; it does not revive SQLite.
 
@@ -26,8 +26,8 @@ Generated adapters, stale handoffs, old specs, and runtime logs are not source o
 
 Confusing these is the single most common source of "is this doc out of date?" in this repo.
 
-- **`V1.1.4` is the current release version.** Git tags `v1.1.0` through `v1.1.4`; the next
-  upgrade would be `V1.1.5`. This is the version of the system as a product.
+- **`V1.1.5` is the current release version.** Git tags `v1.1.0` through `v1.1.5`; the next
+  upgrade would be `V1.1.6`. This is the version of the system as a product.
 - **`V3` / `V4` are architecture generations**, not old release numbers. Git tags `v3-final` and
   `v4-baseline-2026-08-07`. The dispatcher still runs a **live V3 compatibility bridge**, so
   `shared/protocol.md` saying "the staged V4 boundary" is current, not stale. Renaming these to

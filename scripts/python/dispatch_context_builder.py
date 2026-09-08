@@ -409,6 +409,25 @@ def _packet_review_is_owed(fields: Mapping[str, str]) -> bool:
     return mandatory or bool(triggers)
 
 
+def is_terminal_review_task(contract: object, write_scope: object) -> bool:
+    """Recognize artifact-only terminal review using the typed contract policy.
+
+    Validation re-derives the evidence and anti-affinity requirements in
+    verification_contract; a role name or a bare required:false is insufficient.
+    Callers must also bind this contract to their dispatcher-owned hash/pin.
+    """
+    if not isinstance(write_scope, (list, tuple)) or write_scope:
+        return False
+    try:
+        validated = validate_contract_schema(contract)
+    except (VerificationContractError, TypeError):
+        return False
+    return (
+        validated["result_type"] in {"review", "verification"}
+        and validated["deliverable_review_policy"]["required"] is False
+    )
+
+
 def _check_deliverable_review_agreement(
     fields: Mapping[str, str], contract: Mapping[str, Any]
 ) -> None:
@@ -428,12 +447,24 @@ def _check_deliverable_review_agreement(
     so hard-rejecting the over-claim would break every routine dispatch before the
     producer is updated. The over-claim is retired at the producer, not policed
     here; policing it would trade one dead board for another.
+
+    An explicitly empty-scope terminal review is the typed-contract exception:
+    its validated evidence closes the review chain instead of creating another
+    subject. Settlement uses the same predicate against the registry pin.
     """
 
     policy = contract.get("deliverable_review_policy")
     if not isinstance(policy, Mapping):
         return
-    if policy.get("required") is False and _packet_review_is_owed(fields):
+    scope = (
+        parse_scope(fields["write_scope"], field="write_scope")
+        if "write_scope" in fields else None
+    )
+    if (
+        policy.get("required") is False
+        and _packet_review_is_owed(fields)
+        and not is_terminal_review_task(contract, scope)
+    ):
         raise DispatchContextError(
             "verification_contract deliverable_review_policy.required is false but "
             "the packet's mandatory_review/review_triggers demand a different-family "
@@ -1554,11 +1585,11 @@ def build_context(
     # declare `write_scope: []` with a real return_artifact, 79 of them
     # review/audit/read-only roles.
     #
-    # `scripts/send-task.sh:221` has been hiding this by injecting the response
-    # path as the FIRST scope entry on every generated packet, so only PREPARED
-    # packets — the ones reviewers hand-write — ever hit the refusal. That is
-    # one rule with two behaviours depending on which door you came through.
+    # The board dispatcher preserves this empty list; the supervisor must
+    # accept it while retaining the separately required reads and result path.
     #
+    # scripts/send-task.sh injects the response path as its first scope entry;
+    # bin/send-task.sh also accepts explicitly empty scopes from packets.
     # A DECLARED scope still has to contain the artifact: a packet that grants
     # path A while returning artifact B is genuinely inconsistent, and that is
     # the error this check exists to catch.
@@ -2935,7 +2966,7 @@ def prepare_worktree_outputs(
         or not isinstance(raw_write_paths, list)
         or any(not isinstance(item, str) for item in raw_write_paths)
         or not isinstance(write_paths, list)
-        or not any(_contains(item, result_relative) for item in write_paths)
+        or (write_paths and not any(_contains(item, result_relative) for item in write_paths))
         or not isinstance(raw_evidence_outputs, list)
         or len(raw_evidence_outputs) > MAXIMUM_EVIDENCE_OUTPUTS
     ):

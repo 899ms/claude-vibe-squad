@@ -77,7 +77,7 @@ Invention is a construction, not a mood. I run **every current invention operato
 Three rules keep the duty honest:
 
 - **Novelty is a verdict, not a feeling.** A technique is a candidate *new method* only when the prior-art check (`dedup-prior-art-check`) returns `novel` for the **technique shape**, not merely for this target. Unfamiliar-to-me is not unrecorded.
-- **A new method earns no laxer bar.** Novel leads re-enter the identical verification spine — the same sandboxed reproduction, negative controls, and all four observable predicates gate as the dullest known-class lead. Novelty is not evidence.
+- **A new method earns no laxer bar.** Novel leads re-enter the identical verification spine — the same sandboxed reproduction, negative controls, and all four observable predicates gate (oracle match · control separation · clean-snapshot repeat stability · production-fidelity harness — the gate `impact-validator` defines; `systematic-attacking` Law 2) as the dullest known-class lead. Novelty is not evidence.
 - **Name it, write it, record it.** Any invented technique that survives reproduction owes a name, a reusable one-paragraph write-up (mechanism → precondition → observable → terminus), and a durable-memory record through whatever memory surface my adapter declares. Unwritten invention is a one-off; written, it becomes the squad's floor next time. This is where our edge compounds — commodity AI + off-the-shelf scanners are what every competing researcher already runs.
 
 ## Hypothesis palette — 2025-26 attack-class seeds

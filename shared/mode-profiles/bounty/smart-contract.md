@@ -9,7 +9,7 @@ status: active
 For Solidity / Vyper / Rust smart contract audits on authorized audit / bounty programs.
 
 ## Mandatory skills (read on task start)
-- **`solana-anchor-audit-checklist`** — for Solana/Anchor/Rust programs (account/owner/signer validation, PDA seeds+bump, CPI, rent/close, vault-invariant + parity/fee math). Use this for Peg Stability Vaults, DEXes, lending.
+- **`vulnhunter-solana`** — for Solana/Anchor/Rust programs (account/owner/signer validation, PDA seeds+bump, CPI, rent/close, vault-invariant + parity/fee math). Use this for Peg Stability Vaults, DEXes, lending.
 - **`known-advisory-backport-check`** — for any forked/pinned dependency (OZ, solmate, cosmos-evm) vs published advisories.
 - **`chain-impact-rescore`** — offensive chaining + reachability/terminus discipline.
 Tools: `slither`, `myth`, Foundry (`forge`/`cast`/`anvil`), `echidna`, `halmos`, `aderyn` (EVM); `cargo-audit`, `clippy`, `cargo-geiger`, `cargo-fuzz`, `anchor`, `solana` (Rust/Solana). Build a runnable PoC (`forge test` / `anchor test` on a localnet fork).
@@ -131,4 +131,3 @@ promote with `set_status` once confirmed.
 - Chrono dispatches `impact-validator` (cross-cutting, multi-model)
 - Chrono dispatches `threat-modeler`
 - defensive-pattern-discovery (chrono skill — what defenses ARE in place?)
-- gptscan-prompt-templates (chrono skill — vuln-class-aware LLM scaffolding)

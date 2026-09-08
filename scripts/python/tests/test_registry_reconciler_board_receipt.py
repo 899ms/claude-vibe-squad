@@ -32,7 +32,7 @@ class BoardReceiptSettlementTests(unittest.TestCase):
         generation = int(extra.pop("delivery_generation", 1))
         entry: dict[str, object] = {
             "status": "in-flight",
-            "specialist": "sol",
+            "specialist": "exodia",
             "to_model": "gpt-codex",
             "compatibility_namespace": "coding",
             "return_artifact": "_state/consults/result.md",
@@ -271,7 +271,7 @@ class BoardReceiptSettlementTests(unittest.TestCase):
                     {
                         task_id: {
                             "status": "in-flight",
-                            "specialist": "sol",
+                            "specialist": "exodia",
                             "to_model": "gpt-codex",
                             "compatibility_namespace": "coding",
                             "return_artifact": "_state/consults/blocked.md",
@@ -356,7 +356,7 @@ class BoardReceiptSettlementTests(unittest.TestCase):
                     {
                         task_id: {
                             "status": "in-flight",
-                            "specialist": "sol",
+                            "specialist": "exodia",
                             "to_model": "gpt-codex",
                             "compatibility_namespace": "coding",
                             "return_artifact": "_state/consults/advisory.md",

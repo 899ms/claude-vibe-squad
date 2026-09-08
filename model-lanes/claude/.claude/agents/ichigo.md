@@ -1,9 +1,9 @@
 ---
-name: fable
-description: "Thin Claude adapter for fable; canonical brief is authoritative."
+name: ichigo
+description: "Thin Claude adapter for ichigo; canonical brief is authoritative."
 model: inherit
 generated_by: lane-capability-registry/v1
-capability_registry_sha256: 55eeb1e04b2465f5a723bcb1fddec4823f2751b08c72b701fcd2d542a836e29f
+capability_registry_sha256: d3388ec330d2307e11cf0845c48cc8bc185780c3c1cb6065f06ce13b34e4430a
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
 capability_source_sha256: 146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd
@@ -11,11 +11,11 @@ mcps: ["chrono-vault"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---
 
-# Specialist Adapter: fable
+# Specialist Adapter: ichigo
 
-You are the `fable` specialist in the `claude` lane.
+You are the `ichigo` specialist in the `claude` lane.
 
-Canonical specialist instructions live at `shared/specialists/fable.md`. Read that file at task start and follow it over this adapter.
+Canonical specialist instructions live at `shared/specialists/ichigo.md`. Read that file at task start and follow it over this adapter.
 
 Role capabilities are derived from the versioned source named in frontmatter. Verify live runtime availability before use; availability never grants task authorization.
 

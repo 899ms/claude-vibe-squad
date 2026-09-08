@@ -22,6 +22,15 @@ ENTROPY_ASSIGNMENT = re.compile(
     r"(?i)(?:api[_-]?key|access[_-]?token|auth[_-]?token|secret|password|credential)"
     r"\s*[:=]\s*[\"']?([A-Za-z0-9_./+=-]{20,})"
 )
+# Constructed so this scanner and its regression tests do not contain the exact
+# directive they prohibit in a publication candidate. Gitleaks treats that
+# directive as an inline finding suppression; public artifacts may not carry a
+# self-silencing instruction, regardless of whether the adjacent value happens
+# to match this independent scanner's entropy heuristic.
+INLINE_SECRET_SUPPRESSION = re.compile(
+    "gitleaks" + r"\s*:\s*allow", flags=re.IGNORECASE
+)
+IDENTIFIER_DENYLIST_CANDIDATE_PATH = "tools/export/identifier-denylist.txt"
 TEXT_SUFFIXES = frozenset(
     {
         ".bash",
@@ -229,6 +238,8 @@ def scan(
     tracked_paths: list[str],
     identifier_patterns: list[tuple[str, re.Pattern[str]]],
     allowed_fingerprints: set[Fingerprint],
+    *,
+    identifier_exempt_paths: frozenset[str] = frozenset(),
 ) -> list[Finding]:
     findings: list[Finding] = []
     private_home_patterns = _private_home_patterns()
@@ -236,6 +247,15 @@ def scan(
         text = _tracked_text(root, relative_path)
         if text is None:
             continue
+        for match in INLINE_SECRET_SUPPRESSION.finditer(text):
+            line_number = text.count("\n", 0, match.start()) + 1
+            findings.append(
+                Finding(
+                    kind="inline-secret-suppression",
+                    path=relative_path,
+                    detail=f"line={line_number}",
+                )
+            )
         for match in ENTROPY_ASSIGNMENT.finditer(text):
             token = match.group(1)
             if _looks_generated(token):
@@ -249,11 +269,15 @@ def scan(
                         detail=f"assignment value length={len(token)} entropy={_entropy(token):.2f}",
                     )
                 )
-        for source, regex in identifier_patterns:
-            if regex.search(text):
-                findings.append(
-                    Finding(kind="private-identifier", path=relative_path, detail=source)
-                )
+        # The canonical denylist necessarily contains the identifiers it
+        # forbids. Exempt it only from matching against itself; entropy,
+        # suppression-directive, and private-home checks still inspect it.
+        if relative_path not in identifier_exempt_paths:
+            for source, regex in identifier_patterns:
+                if regex.search(text):
+                    findings.append(
+                        Finding(kind="private-identifier", path=relative_path, detail=source)
+                    )
         private_home_offsets: set[int] = set()
         for regex in private_home_patterns:
             for match in regex.finditer(text):
@@ -274,6 +298,7 @@ def scan(
 def _write_report(path: Path, findings: list[Finding]) -> None:
     try:
         with path.open("w", encoding="utf-8") as handle:
+            handle.write("Scan scope: policy-projected tracked publication candidate\n")
             handle.write(f"Independent content findings: {len(findings)}\n")
             for finding in findings:
                 handle.write(
@@ -297,16 +322,53 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _projected_candidate(tracked_nul: Path) -> tuple[Path, list[str]]:
+    """Resolve the maintained gate's already-materialized candidate.
+
+    ``bin/product-hygiene.sh`` creates these two siblings before invoking both
+    scanners. Reusing them keeps the independent content scan on exactly the
+    bytes gitleaks was asked to scan. If that projection is absent, partial, or
+    replaced by a symlink, this publication check fails closed instead of
+    falling back to the private working tree.
+    """
+
+    temporary_root = tracked_nul.resolve().parent
+    candidate_input = temporary_root / "gitleaks-candidate"
+    projected_nul = temporary_root / "gitleaks-candidate-paths.nul"
+    try:
+        if candidate_input.is_symlink() or not candidate_input.is_dir():
+            raise ScanError(
+                "policy-projected publication candidate is unavailable or not a directory"
+            )
+        if projected_nul.is_symlink() or not projected_nul.is_file():
+            raise ScanError(
+                "policy-projected publication path list is unavailable or not a regular file"
+            )
+        candidate = candidate_input.resolve(strict=True)
+        projected_paths = read_nul_paths(projected_nul)
+    except OSError as error:
+        raise ScanError(f"cannot resolve policy-projected publication candidate: {error}") from error
+    if not projected_paths:
+        raise ScanError("policy-projected publication candidate has no tracked paths")
+    return candidate, projected_paths
+
+
 def main() -> int:
     args = build_parser().parse_args()
     try:
-        root = Path(args.root).resolve(strict=True)
-        if not root.is_dir():
-            raise ScanError(f"scan root is not a directory: {root}")
-        tracked_paths = read_nul_paths(args.tracked_nul)
+        requested_root = Path(args.root).resolve(strict=True)
+        if not requested_root.is_dir():
+            raise ScanError(f"scan root is not a directory: {requested_root}")
+        root, tracked_paths = _projected_candidate(Path(args.tracked_nul))
         patterns = _load_identifier_patterns(Path(args.identifier_denylist))
         fingerprints = _load_fingerprint_allowlist(Path(args.fingerprint_allowlist))
-        findings = scan(root, tracked_paths, patterns, fingerprints)
+        findings = scan(
+            root,
+            tracked_paths,
+            patterns,
+            fingerprints,
+            identifier_exempt_paths=frozenset({IDENTIFIER_DENYLIST_CANDIDATE_PATH}),
+        )
         _write_report(Path(args.report), findings)
         return 1 if findings else 0
     except (PolicyError, ScanError) as error:

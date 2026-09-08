@@ -31,6 +31,12 @@ if _this_dir not in sys.path:
     sys.path.insert(0, _this_dir)
 from repo_root import resolve_vault_root
 from durable_publish import rename_noreplace as _rename_noreplace
+from dispatch_context_builder import is_terminal_review_task
+from verification_contract import (
+    ContractError as VerificationContractError,
+    author_family_for_lane,
+    verification_contract_sha256,
+)
 
 
 VAULT_ROOT = resolve_vault_root()
@@ -118,19 +124,6 @@ LANE_AUTHOR_FAMILY = {
     "kimi": "moonshot",
 }
 
-# Read-only review packets performed by verdict-producing roles must not require
-# a review of their own review. The explicit empty write scope is essential:
-# reviewer specialists doing implementation work still follow a declared trigger.
-#
-# The set must span BOTH review families or anti-affinity has no landing spot:
-# code-reviewer and security-analyst both map to gpt-codex, so a codex-authored
-# task -- which needs a non-openai reviewer -- had no eligible read-only verdict
-# role at all. `skeptic` is the canonical claude-lane judgment role (shared ns,
-# safety_level high, primary_lane claude in shared/specialist-runtime-map.tsv),
-# so it completes the pair. The dispatcher no longer reads this set: packet
-# review is trigger-derived, while this remains the narrow settlement exemption
-# that prevents an explicitly reviewed verdict from recursing forever.
-REVIEW_VERDICT_SPECIALISTS = frozenset({"code-reviewer", "security-analyst", "skeptic"})
 TEST_ISOLATION_ENV = "SQUAD_TEST_ISOLATION"
 CHRONO_NOTIFY_LOCKDIR = STATE_DIR / "chrono-notify.lockdir"
 CHRONO_NOTIFY_RECEIPTS_DIR = STATE_DIR / "chrono-notify-receipts"
@@ -1642,7 +1635,7 @@ def attempt_evidence_ref(task_id: str, entry: dict[str, Any]) -> str:
     `worktree/<task_id>/<attempt_id>`, so this name is knowable from the
     registry alone -- including when the receipt recorded no evidence because
     the worktree directory was already gone. That case is not hypothetical: it
-    is what made TASK-2026-08-11-0180 read as "permanently unverifiable" while
+    is what made TASK-2099-01-01-0007-example-artifact-recovery read as "permanently unverifiable" while
     4,538 bytes of its evidence sat on exactly this ref.
     """
 
@@ -2710,7 +2703,7 @@ def bundle_declaring_file(entry: dict[str, Any], digest: str) -> str | None:
 def declared_hash_issue(entry: dict[str, Any], response: Path) -> str:
     """Refuse to settle an explicit bundle declaration that resolves to nothing.
 
-    TASK-2026-08-11-0180 settled `complete` declaring an artifact bundle whose
+    TASK-2099-01-01-0007-example-artifact-recovery settled `complete` declaring an artifact bundle whose
     manifest was never reachable from the repository. Its pinned contract set
     `deliverable_review_policy.subject = artifact_bundle_sha256`, so the review
     that approved it was a review of a subject nobody could open. A hash
@@ -2718,7 +2711,7 @@ def declared_hash_issue(entry: dict[str, Any], response: Path) -> str:
 
     This HOLDS; it never drops. The response file is untouched, the registry is
     kept OPEN, and the issue clears the moment the manifest lands or the
-    unbacked digest is removed -- because the lesson of TASK-2026-08-11-0490 is
+    unbacked digest is removed -- because the lesson of TASK-2099-01-01-0008-example-envelope-preservation is
     that rejecting an envelope destroyed a complete deliverable.
     """
 
@@ -2834,10 +2827,18 @@ def _specialist_primary_lane(specialist: str) -> str:
     return ""
 
 
-def _is_read_only_review_task(entry: dict[str, Any]) -> bool:
-    """True only for an explicitly read-only task owned by a verdict role."""
-    specialist = str(entry.get("specialist") or "").strip()
-    return specialist in REVIEW_VERDICT_SPECIALISTS and entry.get("write_scope") == []
+def _has_terminal_review_contract(entry: dict[str, Any]) -> bool:
+    """Use the admission rule against registry-pinned evidence, never response fields."""
+    contract = entry.get("verification_contract")
+    if not is_terminal_review_task(contract, entry.get("write_scope")):
+        return False
+    try:
+        return (
+            entry.get("verification_contract_sha256") == verification_contract_sha256(contract)
+            and contract["author_family"] == author_family_for_lane(_lane(entry.get("to_model")))
+        )
+    except (VerificationContractError, TypeError):
+        return False
 
 
 def _review_class(entry: dict[str, Any]) -> str:
@@ -2966,10 +2967,10 @@ def cross_family_review_pending(entry: dict[str, Any]) -> tuple[bool, str, str]:
         return (True, executing_lane, review_lane)
     if readable_class != "standard":
         return (True, executing_lane, review_lane)
-    if _is_read_only_review_task(entry):
-        # A review of a read-only review creates an infinite regress. The exact
-        # role allowlist and explicit empty write scope keep this exemption
-        # narrow; implementation-bearing reviewer tasks are not exempt.
+    if _has_terminal_review_contract(entry):
+        # This exemption requires pinned typed evidence. bin/send-task.sh does
+        # not yet supply those fields; ordinary reviewer dispatches currently
+        # avoid recursion by explicitly declaring mandatory_review: false.
         return (False, executing_lane, review_lane)
     return (True, executing_lane, review_lane)
 
@@ -3004,7 +3005,7 @@ def response_review_pending(
         return pending, executing_lane, review_lane
     if review_lane in {"", "none"} or executing_lane == review_lane:
         return pending, executing_lane, review_lane
-    if _is_read_only_review_task(entry):
+    if _has_terminal_review_contract(entry):
         return pending, executing_lane, review_lane
     return True, executing_lane, review_lane
 

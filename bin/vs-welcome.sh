@@ -134,8 +134,8 @@ fi
 #
 # What it deliberately does NOT capture, and why: claude stays the pane shell's
 # DIRECT exec child (the tee becomes claude's child, never its parent), so the
-# `pgrep -P` coordinator test in shared/chrono-pane.sh -- and thus squad-stop /
-# outbox-watcher / squad-monitor discovery -- is byte-for-byte unchanged. A
+# single `ps -eo ppid=,command=` snapshot in shared/chrono-pane.sh -- and thus
+# squad-stop / outbox-watcher / squad-monitor discovery -- is unchanged. A
 # direct-child exec has no waiting parent, so the numeric exit CODE/signal is
 # not recordable here; claude's own dying stderr and the session boundary are.
 # The exit code is owned by claude's real parent, the pane shell that runs this

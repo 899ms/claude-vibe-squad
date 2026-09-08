@@ -5,14 +5,15 @@ memory boundary, native model CLI authentication, the health check, and the firs
 launch.
 
 - [Install](install/README.md) — the supported install path in order, with a
-  **check** after every step. Required steps 1–5, optional 6–7.
+  **check** after every step. The guide itself marks which steps are required and
+  which are optional.
 
 ## Understand the system
 
 - [Architecture](architecture.md) — the coordinator, isolated workers, review,
   and settlement flow.
 - [Model runtime map](model-runtime-map.md) — how a specialist is routed to
-  Codex, Claude, Gemini, or Kimi.
+  Codex, Claude, Gemini, Grok, or Kimi.
 - [Project](../shared/modes/project.md) — the build and delivery workflow.
 - [Bounty](../shared/modes/bounty.md) — the authorized security workflow.
 

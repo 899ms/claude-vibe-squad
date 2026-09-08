@@ -78,7 +78,7 @@ Layer 3: SPECIALIST (this file)
 
 ## Typed v1 checks and support boundary
 
-**Canonical: `shared/lifecycle.md` rule 14.** That section is the one home for the contract, the support boundary, and the exit tiers; the operating summary below exists so this brief is usable standalone. If the two ever disagree, rule 14 wins and this summary is the bug — fix it there first.
+**Canonical: `shared/lifecycle.md` rule 14.** That section is the one home for the contract, the support boundary, and the exit tiers; the operating summary below exists so this brief is usable standalone. If the two ever disagree, rule 14 wins and this summary is the bug — fix it there first. (`shared/lifecycle.md` is maintainer-internal and is withheld from the public export; for a public reader the standalone operating summary below is the usable form.)
 
 The executable derives requirements from the dispatcher-pinned `verification-contract/v1`. Common typed checks validate registry → packet → manifest trust anchors, ordered S0–S7 records, required verification coverage, memory bookends, independent review bindings, current artifact/gate hashes, complete actions, I-loop invalidation, and local-only delivery.
 

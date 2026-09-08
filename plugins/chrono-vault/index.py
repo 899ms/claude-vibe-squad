@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from privacy import redact_text
 from vaultroot import resolve_vault_root
 
 
@@ -514,6 +515,12 @@ def _delete_doc(connection: sqlite3.Connection, docid: int) -> None:
 
 
 def _upsert_connection(connection: sqlite3.Connection, note: dict[str, Any]) -> None:
+    # Lists are joined during parsing. Screen the final FTS values, including
+    # separators introduced between individually screened list entries.
+    fts_values = tuple(redact_text(note[field]) for field in (
+        "title", "body", "aliases_text", "target", "component_text",
+        "attack_class", "keywords_text", "evidence_summary",
+    ))
     by_id = connection.execute(
         "SELECT docid, path FROM meta WHERE id=?", (note["id"],)
     ).fetchone()
@@ -560,11 +567,7 @@ def _upsert_connection(connection: sqlite3.Connection, note: dict[str, Any]) -> 
             keywords, evidence_summary
         ) VALUES(?,?,?,?,?,?,?,?,?)
         """,
-        (
-            docid, note["title"], note["body"], note["aliases_text"],
-            note["target"], note["component_text"], note["attack_class"],
-            note["keywords_text"], note["evidence_summary"],
-        ),
+        (docid, *fts_values),
     )
     connection.execute("DELETE FROM quarantine WHERE path=?", (note["path"],))
 

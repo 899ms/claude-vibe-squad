@@ -315,12 +315,13 @@ if [[ "$PUBLIC_EXPORT" -eq 1 ]]; then
     if git -C "$VAULT_ROOT" remote get-url public >/dev/null 2>&1; then
         # Operator-accepted residual (2026-07-28, remediation choice C): the
         # retained refs/pull/1/head pre-clean-slate lineage is LOW severity
-        # (operator's own identity, 0 credentials) and was explicitly out-scoped.
-        # See _state/security-scan-2026-07-28/remote-exposure-report.md. Any NEW
-        # disjoint advertised ref is still caught (the allowlist is exact).
+        # (operator's own identity, 0 credentials) and was explicitly accepted.
+        # See _state/security-scan-2026-07-28/remote-exposure-report.md. The
+        # accepted-risk record is pinned to the reviewed SHA; any ref drift is
+        # classified normally and fails closed.
         python3 "${export_tool_root}/tools/export/remote_ref_audit.py" \
             --remote public --clean-ref refs/remotes/public/main --repo "$VAULT_ROOT" \
-            --allow 'refs/pull/1/head' \
+            --accept-ref 'refs/pull/1/head=64aa37ff47cf4f1c8b2eb259f42eadbee61e9324' \
             > "$remote_ref_report" 2>&1
         remote_ref_status=$?
         if [[ "$remote_ref_status" -eq 0 ]]; then

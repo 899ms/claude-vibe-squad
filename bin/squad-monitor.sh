@@ -250,7 +250,6 @@ capture_stop_reason() {
 archive_completed_inbox() {
     local namespace="$1"
     local inbox_dir="${VAULT_ROOT}/departments/${namespace}/inbox"
-    local outbox_dir="${VAULT_ROOT}/departments/${namespace}/outbox"
     local archive_dir="${VAULT_ROOT}/departments/${namespace}/archive"
 
     while IFS= read -r task_file; do
@@ -258,7 +257,12 @@ archive_completed_inbox() {
         local task_name task_id response
         task_name=$(basename "$task_file")
         task_id="${task_name%.md}"
-        response="${outbox_dir}/${task_id}-response.md"
+        # A legacy inbox location does not determine the response mailbox.
+        response=""
+        local candidate
+        for candidate in "${VAULT_ROOT}"/departments/*/outbox/"${task_id}-response.md"; do
+            [[ -f "$candidate" ]] && { response="$candidate"; break; }
+        done
         [[ -f "$response" ]] || continue
 
         mkdir -p "$archive_dir"
@@ -514,34 +518,156 @@ detect_stale_active() {
 # dispatch to this lead in the last THRASH_WINDOW seconds.  Alert only when
 # the *same* hash appears >1 time — different briefs do not trigger.
 
+task_body_hash() {
+    python3 - "$VAULT_ROOT" "$REGISTRY" "$1" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+root, registry, task = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+
+def body(packet):
+    lines = packet.splitlines(keepends=True)
+    if not lines or lines[0].strip() != "---":
+        raise ValueError("missing packet frontmatter")
+    end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+    if end is None:
+        raise ValueError("unterminated packet frontmatter")
+    content = "".join(lines[end + 1:]).strip()
+    if not content:
+        raise ValueError("empty task body")
+    return content
+
+try:
+    if not re.fullmatch(r"TASK-[A-Za-z0-9._-]+", task):
+        raise ValueError("invalid task id")
+    # Read one registry snapshot, just as completion evidence binds its receipt
+    # to the registry's task/attempt/generation. Never glob stale contexts.
+    try:
+        entry = json.loads(registry.read_text()).get(task, {})
+    except (OSError, ValueError):
+        entry = {}
+    attempt = entry.get("delivery_attempt_id", "")
+    generation = entry.get("delivery_generation", 1)
+    packet = None
+    if (isinstance(attempt, str) and re.fullmatch(r"[A-Za-z0-9._-]+", attempt)
+            and type(generation) is int and generation > 0):
+        context_path = root / "_state" / "board-dispatch" / f"{task}.{attempt}.context.json"
+        if context_path.exists():
+            context = json.loads(context_path.read_text())
+            authority = context["authority"]
+            if (authority.get("task_id") != task or authority.get("attempt_id") != attempt
+                    or type(authority.get("generation")) is not int
+                    or authority["generation"] != generation):
+                raise ValueError("context identity does not match registry fence")
+            prompt = context["task_prompt"]
+            marker = "## Exact task packet\n\n"
+            if not isinstance(prompt, str) or marker not in prompt:
+                raise ValueError("missing exact task packet in context")
+            packet = prompt.split(marker, 1)[1]
+    else:
+        print(f"NOT_FENCED thrash {task}: registry attempt identity unusable", file=sys.stderr)
+    if packet is None:
+        for directory in ("inbox", "active", "archive"):
+            path = root / "departments" / "coding" / directory / f"{task}.md"
+            if path.is_file():
+                packet = path.read_text()
+                break
+    if packet is None:
+        raise ValueError("no fenced context or canonical packet")
+    print(hashlib.sha256(body(packet).encode()).hexdigest())
+except (OSError, ValueError, TypeError, KeyError, AttributeError) as exc:
+    print(f"NOT_MEASURED thrash {task}: {exc}", file=sys.stderr)
+    raise SystemExit(1)
+PY
+}
+
 detect_thrash() {
-    [[ ! -f "$DISPATCH_LOG" ]] && return
+    if [[ ! -f "$DISPATCH_LOG" ]]; then
+        echo "NOT_MEASURED thrash: dispatch log unavailable; skipped_task_ids=unknown"
+        return
+    fi
 
     local window_start=$(( now - THRASH_WINDOW ))
+    local bucket=$(( now / THRASH_WINDOW ))
+    local window_min=$(( THRASH_WINDOW / 60 ))
+    local window_rows namespace
 
-    for namespace in "${COMPATIBILITY_NAMESPACES[@]}"; do
-        # Collect body hashes for all tasks dispatched to this namespace in window
-        local hash_list=""
-        while IFS= read -r task_id; do
+    # Source namespaces are observed in one log snapshot, not inferred from the
+    # compatibility-mailbox inventory. Namespace labels also become state filenames.
+    if ! window_rows=$(jq -sc --argjson ws "$window_start" '
+        [.[] | objects |
+         (.source_namespace // .compatibility_namespace // .to_lead) as $namespace |
+         select($namespace | if type == "string"
+             then test("\\A[a-z][a-z0-9_-]{0,63}\\z") else false end) |
+         (try (.ts | fromdateiso8601) catch null) as $ts |
+         select($ts == null or $ts >= $ws) |
+         {namespace: $namespace, task_id:
+             (if $ts == null then "!invalid_time"
+              elif (.task_id | if type == "string"
+                  then test("\\ATASK-[A-Za-z0-9._-]+\\z") else false end | not)
+              then "!invalid" else .task_id end)}]
+    ' "$DISPATCH_LOG" 2>/dev/null); then
+        echo "NOT_MEASURED thrash: dispatch log unreadable; skipped_task_ids=unknown"
+        return
+    fi
+
+    while IFS= read -r namespace; do
+        [[ -z "$namespace" ]] && continue
+        # Resolve packets in the canonical mailbox regardless of source namespace.
+        local hash_list="" task_rows skipped=0 measured=0 task_id occurrences
+        local skipped_rows=0 unknown_time_rows=0
+        local alerted_file="${STATE_DIR}/${namespace}.thrash-${bucket}-alerted"
+        task_rows=$(jq -r --arg namespace "$namespace" '
+            [.[] | select(.namespace == $namespace)] |
+            group_by(.task_id)[] | [.[0].task_id, length] | @tsv
+        ' <<< "$window_rows")
+        while IFS=$'\t' read -r task_id occurrences; do
             [[ -z "$task_id" ]] && continue
-            local task_file=""
-            for dir in inbox active archive; do
-                local f="${VAULT_ROOT}/departments/${namespace}/${dir}/${task_id}.md"
-                [[ -f "$f" ]] && { task_file="$f"; break; }
-            done
-            [[ -z "$task_file" ]] && continue
-            # Hash body only — strip YAML frontmatter (everything up to 2nd ---)
+            # Unknown timestamps cannot age out of an append-only log. Keep their
+            # diagnostic, but never let them arm a recurring window alert.
+            if [[ "$task_id" == "!invalid_time" ]]; then
+                unknown_time_rows=$((unknown_time_rows + occurrences))
+                echo "NOT_MEASURED thrash ${namespace}: invalid dispatch timestamp; skipped_log_rows=${occurrences}"
+                continue
+            fi
+            if [[ "$task_id" == "!invalid" ]]; then
+                skipped_rows=$((skipped_rows + occurrences))
+                echo "NOT_MEASURED thrash ${namespace}: invalid dispatch identity; skipped_log_rows=${occurrences}"
+                continue
+            fi
+            # Log rows do not carry attempt identity. Repeated IDs cannot be
+            # assigned historical bodies, but their recurrence itself is thrash.
+            if [[ "$occurrences" -gt 1 ]]; then
+                skipped=$((skipped + 1))
+                echo "NOT_MEASURED thrash ${task_id}: ${occurrences} dispatches without attempt identity"
+                if [[ ! -f "$alerted_file" ]]; then
+                    send_alert "${namespace} namespace received same task ${occurrences}x in ${window_min}m - real thrash (repeated task id ${task_id})"
+                    touch "$alerted_file"
+                fi
+                continue
+            fi
             local h
-            h=$(awk 'BEGIN{n=0} /^---/{n++; next} n>=2{print}' "$task_file" \
-                | shasum -a 256 | cut -d' ' -f1)
+            if ! h=$(task_body_hash "$task_id"); then
+                skipped=$((skipped + 1))
+                continue
+            fi
+            measured=$((measured + 1))
             hash_list="${hash_list}${h}"$'\n'
-        done < <(jq -r --argjson ws "$window_start" --arg namespace "$namespace" '
-            select(.ts != null) |
-            select((.ts | fromdateiso8601) >= $ws) |
-            select((.source_namespace // .compatibility_namespace // .to_lead) == $namespace) |
-            .task_id
-        ' "$DISPATCH_LOG" 2>/dev/null)
+        done <<< "$task_rows"
 
+        if [[ "$skipped" -gt 0 || "$skipped_rows" -gt 0 || "$unknown_time_rows" -gt 0 ]]; then
+            local summary="NOT_MEASURED thrash ${namespace}: skipped_task_ids=${skipped} measured_task_ids=${measured} skipped_log_rows=$((skipped_rows + unknown_time_rows))"
+            local unmeasured_file="${STATE_DIR}/${namespace}.thrash-unmeasured-${bucket}-alerted"
+            if [[ "$measured" -eq 0 && ( "$skipped" -gt 0 || "$skipped_rows" -gt 0 ) && ! -f "$alerted_file" && ! -f "$unmeasured_file" ]]; then
+                send_alert "$summary"
+                touch "$unmeasured_file"
+            else
+                echo "$summary"
+            fi
+        fi
         [[ -z "$hash_list" ]] && continue
 
         # Max repeat count for any single hash — >1 means real thrash
@@ -551,14 +677,11 @@ detect_thrash() {
         [[ -z "$max_repeats" || "$max_repeats" -le 1 ]] && continue
 
         # Bucket dedup: stable key within each THRASH_WINDOW interval
-        local bucket=$(( now / THRASH_WINDOW ))
-        local alerted_file="${STATE_DIR}/${namespace}-thrash-${bucket}-alerted"
         [[ -f "$alerted_file" ]] && continue
 
-        local window_min=$(( THRASH_WINDOW / 60 ))
         send_alert "${namespace} namespace received same task ${max_repeats}x in ${window_min}m - real thrash (duplicate body)"
         touch "${alerted_file}"
-    done
+    done < <(jq -r 'map(.namespace) | unique[]' <<< "$window_rows")
 }
 
 # ── BONUS: auto-archive completed active/ stubs ───────────────────────────────
@@ -572,7 +695,6 @@ COMPLETED_ACTIVE_THRESHOLD=7200  # 2 hours
 auto_archive_completed() {
     local namespace="$1"
     local active_dir="${VAULT_ROOT}/departments/${namespace}/active"
-    local outbox_dir="${VAULT_ROOT}/departments/${namespace}/outbox"
     local archive_dir="${VAULT_ROOT}/departments/${namespace}/archive"
 
     while IFS= read -r task_file; do
@@ -589,7 +711,10 @@ auto_archive_completed() {
         [[ $age -lt $COMPLETED_ACTIVE_THRESHOLD ]] && continue
 
         # Check if response exists in outbox
-        local response="${outbox_dir}/${task_id}-response.md"
+        local response="" candidate
+        for candidate in "${VAULT_ROOT}"/departments/*/outbox/"${task_id}-response.md"; do
+            [[ -f "$candidate" ]] && { response="$candidate"; break; }
+        done
         [[ ! -f "$response" ]] && continue
 
         # Response exists + stub is old → archive the active stub

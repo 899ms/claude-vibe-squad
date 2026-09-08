@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS
   The claude board load path for project skills is the repo-root ``.claude/skills/``
-  directory. Proven live 2026-08-18 (TASK-2026-08-18-1354-1d8a9427) by invoking
+  directory. Proven live 2026-08-18 (TASK-2099-01-01-0009-example-skill-discovery) by invoking
   ``Skill(probe-canary)``: the runtime resolved the bare name and printed its base
   directory under ``<worktree>/.claude/skills/probe-canary``. The pre-existing home
   validator (``scripts/python/validate_capability_homes.py`` -> ``actual_skill_names()``)
@@ -72,7 +72,7 @@ WHAT IT REPORTS (informational -> never fails the gate)
     ``.claude/skills`` skill not mirrored to ``.agents/skills`` = unreachable by the
     non-claude lanes; an ``.agents``-native skill = unreachable by claude). This replaces
     the earlier "lanes never checked (enumeration unproven)" stance: the original paths
-    were enumerated live 2026-08-18 (TASK-2026-08-18-1633-3c7b63ef), and Kimi was
+    were enumerated live 2026-08-18 (TASK-2099-01-01-0010-example-skill-probe), and Kimi was
     re-probed against installed 1.40.0 on 2026-09-01.
 
   To promote the backlog to a hard gate once the rollout completes, change the final
@@ -80,7 +80,7 @@ WHAT IT REPORTS (informational -> never fails the gate)
   note deliberately: a hard demanded->wired gate today would red-line CI on every skill
   not yet wired during a staged pilot.
 
-PILOT / DUAL-HOME STATUS (2026-08-18, TASK-2026-08-18-1408-6b24b180)
+PILOT / DUAL-HOME STATUS (2026-08-18, TASK-2099-01-01-0011-example-skill-pilot)
   Source-of-truth is MOVE (skill dirs win; ``shared/skills/`` retired) — accepted in
   principle. During the pilot the pilot skills live in BOTH homes; the ``.claude/skills``
   copy is the winner (it is the live load path). Deletion of the flat files is a separate
@@ -133,16 +133,16 @@ AUDIENCE_VALUES = ("chrono", "specialist")
 # effect while the named skill is actually still present in .agents/skills.
 PENDING_DEMOTION = {
     "dispatch-packet-authoring":
-        "board-dispatch skill; mirror removal needs operator-authorized deletion (TASK-2026-08-18-1807-a72707a2)",
+        "board-dispatch skill; mirror removal needs operator-authorized deletion (TASK-2099-01-01-0012-example-skill-mirror)",
     "review-settlement":
-        "registry-settlement skill; mirror removal needs operator-authorized deletion (TASK-2026-08-18-1807-a72707a2)",
+        "registry-settlement skill; mirror removal needs operator-authorized deletion (TASK-2099-01-01-0012-example-skill-mirror)",
     "cross-family-review-routing":
-        "reviewer-routing skill; mirror removal needs operator-authorized deletion (TASK-2026-08-18-1807-a72707a2)",
+        "reviewer-routing skill; mirror removal needs operator-authorized deletion (TASK-2099-01-01-0012-example-skill-mirror)",
 }
 
 # ---- Per-lane skill reach ---------------------------------------------------
 # Every board lane can now reach project skills. The original paths were proven
-# live 2026-08-18 (TASK-2026-08-18-1633-3c7b63ef); kimi was re-probed against
+# live 2026-08-18 (TASK-2099-01-01-0010-example-skill-probe); kimi was re-probed against
 # installed kimi 1.40.0 on 2026-09-01 after a contradictory later claim. The
 # mechanisms differ per CLI:
 #   - claude    reads `<cwd=worktree-root>/.claude/skills/`  (its proven load path)
@@ -845,7 +845,7 @@ def self_test() -> int:
 
     # 6. Trigger-collision guard: the truth/verification cluster must FAIL, then PASS once
     #    the near-clones are retired and claim-verification is disambiguated — the exact
-    #    cluster and fix from TASK-2026-08-18-1456-5085fbce (proof on the named cluster).
+    #    cluster and fix from TASK-2099-01-01-0013-example-skill-validation (proof on the named cluster).
     cv_colliding = ("Use before publishing or shipping any deliverable that makes factual, quoted, "
         "calculated, or forecast claims: decompose it into load-bearing claims and verify each "
         "against an exact evidence span (Hard Rule 8 truth gate).")

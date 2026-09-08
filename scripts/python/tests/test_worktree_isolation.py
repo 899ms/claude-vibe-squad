@@ -831,6 +831,59 @@ class WorkerResidueIntegrationTests(unittest.TestCase):
 
     ARTIFACT = "departments/coding/outbox/TASK-2026-07-23-9901-integrate-response.md"
 
+    def test_empty_scope_preserves_outputs_and_does_not_land_code(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._provision(Path(directory))
+            self._write(handle, self.ARTIFACT, "read-only report\n")
+            self._write(handle, "inert-probe.txt", "retained in worker\n")
+            # Unrelated target progress must not become drift in an empty scope.
+            (repo / "unrelated.txt").write_text("target advanced\n")
+            _git(["add", "unrelated.txt"], cwd=repo)
+            _git(["commit", "-qm", "unrelated target progress"], cwd=repo)
+            target_before = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+            self.assertEqual(wti.commit_worker_residue(
+                handle, (), exclude_paths=(self.ARTIFACT,)), ())
+            receipt = wti.integrate_worktree_commits(
+                handle, (), exclude_paths=(self.ARTIFACT,))
+            self.assertEqual(receipt.status, "no-committed-in-scope-changes")
+            self.assertEqual(receipt.integrated_paths, ())
+            self.assertEqual(receipt.target_after, target_before)
+            self.assertEqual(receipt.uncommitted_excluded_paths, ("inert-probe.txt",))
+            self.assertEqual(_git(["rev-parse", "HEAD"], cwd=repo).stdout.strip(), target_before)
+            self.assertFalse((repo / self.ARTIFACT).exists())
+            self.assertEqual((handle.worktree_root / self.ARTIFACT).read_text(),
+                             "read-only report\n")
+
+    def test_empty_scope_refuses_worker_commits(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._provision(Path(directory))
+            before = _git(["rev-parse", "HEAD"], cwd=repo).stdout
+            self._write(handle, "unauthorized.txt", "must not land\n")
+            _git(["add", "unauthorized.txt"], cwd=handle.worktree_root)
+            _git(["commit", "-qm", "outside empty scope"], cwd=handle.worktree_root)
+            with self.assertRaisesRegex(wti.WorktreeIsolationError, "outside the integration scope"):
+                wti.integrate_worktree_commits(handle, ())
+            self.assertEqual(_git(["rev-parse", "HEAD"], cwd=repo).stdout, before)
+
+    def test_empty_scope_recovery_integration_is_audited_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repo, handle = self._provision(Path(directory))
+            before = _git(["rev-parse", "HEAD"], cwd=repo).stdout.strip()
+            receipt = wti.integrate_worktree_commits(handle, ())
+            self.assertEqual(receipt.status, "no-committed-in-scope-changes")
+            self.assertEqual(receipt.target_before, before)
+            self.assertEqual(receipt.target_after, before)
+            self.assertEqual(receipt.integrated_paths, ())
+
+    def test_empty_scope_does_not_accept_malformed_scope_types(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            _, handle = self._provision(Path(directory))
+            for scope in (None, "", b"", {}, False):
+                for operation in (wti.commit_worker_residue, wti.integrate_worktree_commits):
+                    with self.subTest(scope=scope, operation=operation.__name__):
+                        with self.assertRaises(wti.WorktreeIsolationError):
+                            operation(handle, scope)
+
     def _provision(self, root: Path):
         repo = _init_repo(root)
         pool = wti.WorktreePool(repo, root / "pool", base_branch="v2")

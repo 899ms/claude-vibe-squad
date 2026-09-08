@@ -15,8 +15,8 @@ scripts — do not trust this doc over the code.
 - `chrono/CLAUDE.md` Dispatch step 1 requires opening the chosen file under `shared/modes/`, stating
   which mode the work will run under, and waiting for the operator to agree. Hard Rule 1 forbids a
   mode starting without explicit consent.
-- **Approving the work is not approving the mode.** Measured 2026-08-21: an operator approved a
-  bounty campaign and 34 of 38 lanes dispatched as `mode: project` — nobody was told. Say the mode
+- **Approving the work is not approving the mode.** A convenience wrapper's silent default sent
+  most of a campaign's lanes under a mode nobody chose — without telling the operator. Say the mode
   word out loud; never infer it from "yes, go".
 
 ## Both dispatch paths preserve an explicit choice

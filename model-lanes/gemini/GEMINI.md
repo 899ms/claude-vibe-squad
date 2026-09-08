@@ -14,7 +14,7 @@ two levels up.
 
 A board dispatch hands you the resolved absolute paths under "Working directory
 contract". Use them verbatim. If you only have the packet's relative path,
-prefix it with `../../`; writing `departments/<ns>/outbox/<id>-response.md`
+prefix it with `../../`; writing `departments/coding/outbox/<id>-response.md`
 as-is silently creates `model-lanes/gemini/departments/...`, which is outside
 your declared write scope and fails completion prevalidation.
 
@@ -23,7 +23,7 @@ Your current specialist roster is in `../ROSTER.md`.
 Task packets are not stored under this directory. They live under:
 
 ```text
-${VAULT_ROOT}/departments/<compatibility_namespace>/inbox/TASK-*.md
+${VAULT_ROOT}/departments/coding/inbox/TASK-*.md
 ```
 
 When nudged with an absolute task path, open that exact file. If no path is

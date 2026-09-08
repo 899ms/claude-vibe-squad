@@ -152,7 +152,7 @@ class RecallRankTestCase(unittest.TestCase):
 
 
 class UsageOutcomeRankTests(RecallRankTestCase):
-    def test_incorrect_demotes_repeatedly_but_remains_findable_and_disputed(self) -> None:
+    def test_incorrect_demotes_repeatedly_but_remains_findable_with_feedback(self) -> None:
         neutral = self._write("IncorrectRankProbe")
         incorrect = self._write("IncorrectRankProbe")
         self._set_mtimes(neutral, incorrect)
@@ -169,7 +169,7 @@ class UsageOutcomeRankTests(RecallRankTestCase):
         once = vault_recall.recall("IncorrectRankProbe")
         once_row = self._row(once, incorrect["id"])
         self.assertEqual(once["results"][0]["id"], neutral["id"])
-        self.assertTrue(once_row["disputed"])
+        self.assertNotIn("disputed", once_row)
         self.assertEqual(once_row["score_components"]["usage"]["incorrect"], 1)
 
         lifecycle.record_usage(
@@ -205,7 +205,7 @@ class UsageOutcomeRankTests(RecallRankTestCase):
         supported_row = self._row(after, supported["id"])
         self.assertEqual(after["results"][0]["id"], supported["id"])
         self.assertGreater(supported_row["score_components"]["usage"]["signal"], 0)
-        self.assertFalse(supported_row["disputed"])
+        self.assertNotIn("disputed", supported_row)
 
 
 class LifecycleFoldingTests(RecallRankTestCase):

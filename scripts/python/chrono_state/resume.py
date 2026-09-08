@@ -39,7 +39,6 @@ ARCHIVED_DEBT_ROOT = Path(os.environ.get("VAULT_ROOT", "."))
 TASKS_HEADING = "## Live tasks (dispatched / in-flight / review-required)"
 DEFERRED_HEADING = "## Deferred owed work (awaiting a Chrono/operator action)"
 QUEUE_HEADING = "## Pending completions (specialist returns awaiting a decision)"
-CONTRA_HEADING = "## Memory contradictions (unreconciled)"
 TURN_HEADING = "## Latest operator instruction"
 ARCHIVED_DEBT_HEADING = "## Archived with unfinished business"
 OPEN_WORK_HEADING = "## Open work (raised and not yet done)"
@@ -141,52 +140,6 @@ def open_work_items(path=None):
 def _open_work_lines(items, show_detail):
     """Compatibility delegate to the canonical workboard projection renderer."""
     return workboard_state.render_resume_rows(items, show_detail)
-
-
-def unreconciled_contradiction_count():
-    """Count distinct notes left in an unreconciled contradiction, or None if unknown.
-
-    A write that contradicts an active note and does not reconcile it is flagged
-    in the chrono-vault audit trail and kept (never refused); the note stays
-    disputed until someone acts. That owed work surfaces nowhere unless the
-    capsule reports it, so P13.67 adds the count here.
-
-    Single source: `recall._unreconciled_note_ids`, the one reader of the audit
-    trail's flagged contradiction events — recall marks each disputed note with
-    the same set. The plugin is imported lazily and every failure is swallowed:
-    this is a must-not-crash session-resume path, so it must never depend on the
-    vault plugin importing cleanly. Returns None — rendered as a loud "unknown",
-    never a false 0 — when the trail cannot be read (no vault bound in this
-    session, or the plugin is unimportable), the board-spawn-missing-root case
-    that a silent 0 would hide.
-    """
-    try:
-        plugin_dir = Path(__file__).resolve().parents[3] / "plugins" / "chrono-vault"
-        # Append, never insert: the plugin's flat module names (audit, recall,
-        # index, …) must not shadow anything already importable here.
-        if str(plugin_dir) not in sys.path:
-            sys.path.append(str(plugin_dir))
-        import audit  # noqa: E402 — lazy, fail-soft plugin reach
-        import recall  # noqa: E402
-
-        if audit.resolve_audit_dir() is None:
-            return None
-        return len(recall._unreconciled_note_ids())
-    except Exception:  # noqa: BLE001 — the capsule must render regardless
-        return None
-
-
-def _contradiction_line(unreconciled):
-    """The one capsule line reporting unreconciled-contradiction debt."""
-    if unreconciled is None:
-        return (
-            "- unreconciled contradiction count unavailable "
-            "(chrono-vault audit trail unreadable)"
-        )
-    return (
-        f"- {unreconciled} note(s) hold an unreconciled contradiction "
-        "(chrono-vault audit trail; reconcile or supersede to clear)"
-    )
 
 
 def _status_token(status) -> str:
@@ -293,8 +246,7 @@ def pending_completions(path=None):
         # Present but unreadable/undecodable. Returning [] here made a corrupt
         # queue render exactly like an empty one, so hundreds of parked
         # completions could vanish behind one bad byte. None means unknown and
-        # is rendered as a loud line, the same way an unreadable audit trail is
-        # (`unreconciled_contradiction_count`). Still never raises: capsule
+        # is rendered as a loud line. Still never raises: capsule
         # generation must not depend on the queue being well-formed.
         return None
     counts = {}
@@ -431,12 +383,12 @@ def _thread_lines(
     return lines
 
 
-def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
+def _render(latest_operator_turn, view, max_tokens=3000):
     """Build a token-bounded capsule from an already-classified registry view.
 
-    Under pressure the contradiction count drops first, then the archived-debt
-    and open-work blocks collapse to one-line declared omissions, then live task
-    lines are trimmed, then the pending-completions section collapses to a
+    Under pressure the archived-debt and open-work blocks collapse to one-line
+    declared omissions, then live task lines are trimmed, then the
+    pending-completions section collapses to a
     one-line declared omission, then deferred lines are trimmed, and only then
     does the active-thread block compress from full to summary to a loud count.
     The charter rail therefore outlives every other droppable section.
@@ -447,11 +399,9 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     dropped live or deferred line loses that task's next action outright. That
     is a placement argument about recoverability, not about importance —
     `_state/chrono/OPEN-WORK.md` is the canonical owed list and its collapsed
-    line names it, so nothing is more than one read away. Contradiction count
-    is the least precious (re-derivable from the audit trail at any time) and
-    live work is next (it re-surfaces through board sweeps), but
-    pending-completions groups outrank both of those: nothing else in the
-    capsule surfaces `_state/chrono-queue.md` at all, so a handful of
+    line names it, so nothing is more than one read away. Live work re-surfaces
+    through board sweeps, but pending-completions groups outrank it: nothing else
+    in the capsule surfaces `_state/chrono-queue.md` at all, so a handful of
     live-task lines are traded away before the section collapses (controller
     ruling, fix round 1: measured on the real capsule, live tasks alone were
     ~75% of the 3000-token budget while the grouped pending section needed
@@ -495,7 +445,6 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     def build(
         shown_live,
         shown_deferred,
-        show_contra,
         show_pending,
         show_debt,
         show_open_work,
@@ -590,13 +539,10 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
                 f"- UNCLASSIFIED STATUS {status!r}: {n} task(s) invisible to this "
                 "capsule — add it to chrono_state/registry.py KNOWN_STATUSES"
             ]
-        if show_contra:
-            lines += ["", CONTRA_HEADING, _contradiction_line(unreconciled)]
         lines += ["", TURN_HEADING, f"- {latest_operator_turn}"]
         return "\n".join(lines)
 
     shown_live, shown_deferred = list(tasks), list(deferred)
-    show_contra = True
     show_pending = True
     show_debt = True
     show_open_work = True
@@ -604,13 +550,12 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     cap = build(
         shown_live,
         shown_deferred,
-        show_contra,
         show_pending,
         show_debt,
         show_open_work,
         thread_mode,
     )
-    # hard token bound (~4 chars/token): drop the contradiction line, collapse
+    # hard token bound (~4 chars/token): collapse
     # the two pointer blocks (archived debt, then open work) to declared
     # omissions, then trim live task lines, then collapse the
     # pending-completions section to a declared omission, then trim deferred,
@@ -619,17 +564,14 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
     # pending only collapses once trimming live has failed to free enough
     # room on its own.
     while len(cap) // 4 > max_tokens and (
-        show_contra
-        or show_debt
+        show_debt
         or show_open_work
         or shown_live
         or show_pending
         or shown_deferred
         or (charters and thread_mode > 0)
     ):
-        if show_contra:
-            show_contra = False
-        elif show_debt:
+        if show_debt:
             show_debt = False
         elif show_open_work:
             show_open_work = False
@@ -644,7 +586,6 @@ def _render(latest_operator_turn, view, max_tokens=3000, unreconciled=None):
         cap = build(
             shown_live,
             shown_deferred,
-            show_contra,
             show_pending,
             show_debt,
             show_open_work,
@@ -659,7 +600,6 @@ def render_capsule(session_id, latest_operator_turn, max_tokens=3000):
         latest_operator_turn,
         registry_view(),
         max_tokens=max_tokens,
-        unreconciled=unreconciled_contradiction_count(),
     )
 
 
@@ -733,7 +673,6 @@ def write_capsule(session_id, latest_operator_turn=None, max_tokens=3000, path=N
             turn,
             view,
             max_tokens=max_tokens,
-            unreconciled=unreconciled_contradiction_count(),
         )
         + "\n"
     )

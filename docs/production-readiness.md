@@ -34,7 +34,7 @@ untracked it emits a typed `registry-not-published` / `not-applicable` result
 and exits 0, so it passes registry-free — vacuously; a tracked-but-missing
 registry still fails closed.
 
-- `bash -n bin/*.sh scripts/*.sh shared/*.sh`
+- `for script in $(git ls-files '*.sh'); do bash -n "$script" || exit 1; done`
 - `python3 -m py_compile scripts/python/*.py bin/*.py`
 - `bash bin/validate-specialists.sh` (passes in a public clone too, on the
   reduced `index,source,required,existence` set — degradation detail above.
@@ -51,7 +51,8 @@ registry still fails closed.
 - Fresh clone setup test
 - Validate an external `CHRONO_VAULT_ROOT` and prove no note or credential is
   written into the checkout
-- Complete bounded native-CLI and required-tool probes for all four model lanes
+- Complete bounded native-CLI and required-tool probes for all five model lanes:
+  Codex, Claude, Gemini (agy), Grok, and Kimi
 - Confirm no runtime/private file patterns are staged
 
 ## Public Commands

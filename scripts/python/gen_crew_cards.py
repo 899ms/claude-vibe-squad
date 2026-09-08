@@ -62,11 +62,11 @@ FACES = {
         "top": ".-===-.", "eyes_i": "( o  o )", "eyes_a": "( +  + )",
         "mouth": " [ok] ", "base": "-<[==]>-",
     },
-    "sol": {  # persona-blank advisor
+    "exodia": {  # persona-blank advisor
         "top": "   ___   ", "eyes_i": "( -  - )", "eyes_a": "( o  o )",
         "mouth": "  ---  ", "base": "  [ ? ]  ",
     },
-    "fable": {  # persona-blank advisor
+    "ichigo": {  # persona-blank advisor
         "top": "   ___   ", "eyes_i": "( -  - )", "eyes_a": "( o  o )",
         "mouth": "  ---  ", "base": "  [ ? ]  ",
     },
@@ -85,8 +85,8 @@ TAGLINES = {
     "scout": "lightning-fast recon assassin",
     "exploit-developer": "king of curse exploits",
     "code-reviewer": "meticulous severity arbiter",
-    "sol": "unbiased second opinion",
-    "fable": "unbiased second opinion",
+    "exodia": "unbiased second opinion",
+    "ichigo": "unbiased second opinion",
 }
 
 

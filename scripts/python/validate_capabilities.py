@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import subprocess
 import sys
@@ -159,6 +160,7 @@ FIX_HINTS = {
     ),
 }
 REGISTRY_RELATIVE = Path("shared/registries/skill-tool-registry.tsv")
+RETIRED_SKILLS_RELATIVE = Path("shared/skills/_retired")
 REPO_SKILL_HOMES = (Path(".claude/skills"), Path(".agents/skills"))
 PLUGIN_CACHE_RELATIVE = Path(".claude/plugins/cache")
 INSTALLED_PLUGINS_RELATIVE = Path(".claude/plugins/installed_plugins.json")
@@ -174,7 +176,7 @@ PLUGIN_SETTINGS_RELATIVES = (
 ABSENT_SKILL_ACKNOWLEDGEMENTS: dict[str, dict[str, object]] = {
     "sandbox-provision-discipline": {
         "acknowledged_on": "2026-08-29",
-        "source_task": "TASK-2026-08-29-1300-u15",
+        "source_task": "TASK-2099-01-01-0001-example-retirement",
         "consumers": (
             "devops-engineer:gpt-codex",
             "exploit-developer:gpt-codex",
@@ -798,6 +800,167 @@ def duplicate_catalog_names(names: list[str]) -> list[str]:
     return sorted({name for name, count in Counter(names).items() if count > 1})
 
 
+@dataclass(frozen=True)
+class RetiredSkillReference:
+    name: str
+    line: int
+    kind: str
+    reason: str
+
+
+def skill_reference_blocks(text: str) -> Iterable[tuple[int, str, str]]:
+    """Keep field, table, list-item and paragraph boundaries (including wraps).
+
+    These are syntactic contexts, not per-file or per-identifier exceptions.
+    Evidence fields describe measurements; Skills cells declare dependencies.
+    Other prose is classified separately, so a negation in Notes cannot mute a
+    dependency in the step table, or a later instruction in the same paragraph.
+    """
+    pending: list[str] = []
+    start = 1
+    kind = "prose"
+    frontmatter = False
+    mention_section = False
+    for number, line in enumerate(text.splitlines(), 1):
+        stripped = line.strip()
+        field = re.match(r"^([A-Za-z_][\w-]*):", line) if frontmatter else None
+        heading = re.match(r"^#{1,6}\s+(.+)", stripped)
+        bullet = bool(re.match(r"^\s*(?:[-*+] |\d+[.)] )", line))
+        boundary = (
+            not stripped or stripped == "---" or field or heading or bullet
+            or stripped.startswith("|")
+        )
+        if boundary and pending:
+            yield start, "\n".join(pending), kind
+            pending = []
+        if number == 1 and stripped == "---":
+            frontmatter = True
+            continue
+        if frontmatter and stripped == "---":
+            frontmatter = False
+            continue
+        if heading:
+            mention_section = bool(re.fullmatch(
+                r"(?:history|historical (?:notes|context|references)|references|evidence|bibliography)",
+                heading.group(1), re.IGNORECASE,
+            ))
+        if not stripped:
+            continue
+        if not pending:
+            start = number
+            kind = (
+                f"field:{field.group(1)}" if field else
+                "table" if stripped.startswith("|") else
+                "reference" if heading or mention_section else
+                "list" if bullet else "prose"
+            )
+        pending.append(line)
+        if kind == "table":
+            yield start, line, kind
+            pending = []
+    if pending:
+        yield start, "\n".join(pending), kind
+
+
+def prose_skill_reference_kind(block: str, start: int, end: int, kind: str) -> tuple[str, str]:
+    """Classify the occurrence's clause, not any negation elsewhere in the file.
+
+    Operational lists and instructions are demands. Descriptive narrative,
+    reference sections and explicit denials are mentions. This deliberately
+    treats `Use X methodology` as an instruction but `the X methodology` as a
+    citation. Demand declarations take precedence over narrative vocabulary.
+    """
+    boundaries = list(re.finditer(r"[.!?;](?:\s+|$)|\b(?:but|however)\b", block))
+    left = max((match.end() for match in boundaries if match.end() <= start), default=0)
+    right = min((match.start() for match in boundaries if match.start() >= end), default=len(block))
+    prefix = re.sub(r"[`*_]", "", block[left:start]).strip()
+    suffix = re.sub(r"[`*_]", "", block[end:right]).strip()
+    clause = re.sub(r"[`*_]", "", block[left:right])
+    negative_action = (
+        r"\b(?:do(?:es)? not|must not|should not|never|cannot|can't|no longer)\s+"
+        r"(?:use|uses|invoke|run|load|require|need|depend on|support)\b"
+    )
+    actions = list(re.finditer(
+        negative_action + r"|\b(?:use|invoke|run|load|require|need|apply)\b",
+        prefix, re.IGNORECASE,
+    ))
+    if (
+        (actions and re.fullmatch(negative_action, actions[-1].group(), re.IGNORECASE))
+        or re.search(r"\b(?:without|not|no)(?:\s+the)?$", prefix, re.IGNORECASE)
+        or re.match(
+            r"(?:(?:is|are|was|were)\s+)?(?:not|never|no longer)\s+"
+            r"(?:required|needed|available|used|invokable|a dependency)\b",
+            suffix, re.IGNORECASE,
+        )
+    ):
+        return "mention", "explicit-negation"
+    if re.search(
+        r"\b(?:must|shall|mandatory|requir(?:e[sd]?|ing)|needs?|depends? on|rel(?:y|ies) on|dependenc(?:y|ies)|"
+        r"use|using|invoke|run|execute|load|apply|wired|gated|validated)\b|"
+        r"\b(?:I|we|system|agent|workflow|card)\s+(?:uses|runs|invokes|supports)\b",
+        clause, re.IGNORECASE,
+    ):
+        return "demand", "instruction"
+    if kind == "list" and not re.search(
+        r"\b(?:historical|history|mention(?:s|ed)?|formerly|superseded|archived|retired|deprecated|unavailable)\b",
+        clause, re.IGNORECASE,
+    ):
+        return "demand", "operational-list"
+    return "mention", "descriptive-reference"
+
+
+def retired_skill_references(
+    text: str, retired: dict[str, list[str]]
+) -> list[RetiredSkillReference]:
+    """Classify exact identifiers, deduplicated by (identifier, line, kind).
+
+    A line can contain both a mention and a demand on the same name; neither
+    erases the other. The reason is reported with mentions for cleanup review.
+    """
+    if not retired:
+        return []
+    pattern = re.compile(
+        r"(?<![\w-])(?:"
+        + "|".join(re.escape(name) for name in sorted(retired))
+        + r")(?![\w-])"
+    )
+    references: dict[tuple[str, int, str], RetiredSkillReference] = {}
+    for number, block, context in skill_reference_blocks(text):
+        # Identifier spellings are data: e.g. fixture-retired must not supply
+        # the narrative word "retired" and turn an operational list into history.
+        semantic_block = pattern.sub(lambda match: " " * len(match.group()), block)
+        for match in pattern.finditer(block):
+            if context in {"field:state_evidence", "field:state_reason"}:
+                kind, reason = "mention", context.removeprefix("field:")
+            elif context.startswith("field:"):
+                kind, reason = "demand", "frontmatter-declaration"
+            elif (
+                context == "table" and block[:match.start()].count("|") == 4
+                and STEP_SHAPED_RE.match(table_cells(block)[0])
+            ):
+                kind, reason = "demand", "step-skills-cell"
+            else:
+                # Gate/Overlay cells are operational policy too, but can also
+                # explicitly prohibit a dependency. Classify that cell alone.
+                if (
+                    context == "table" and block[:match.start()].count("|") == 5
+                    and STEP_SHAPED_RE.match(table_cells(block)[0])
+                ):
+                    cell_start = block.rfind("|", 0, match.start()) + 1
+                    cell_end = block.find("|", match.end())
+                    cell_end = len(block) if cell_end < 0 else cell_end
+                    kind, reason = prose_skill_reference_kind(
+                        semantic_block[cell_start:cell_end],
+                        match.start() - cell_start, match.end() - cell_start, "list",
+                    )
+                else:
+                    kind, reason = prose_skill_reference_kind(semantic_block, match.start(), match.end(), context)
+            line = number + block.count("\n", 0, match.start())
+            name = match.group()
+            references[(name, line, kind)] = RetiredSkillReference(name, line, kind, reason)
+    return sorted(references.values(), key=lambda ref: (ref.line, ref.name, ref.kind))
+
+
 class Validator:
     def __init__(self, root: Path) -> None:
         self.root = root
@@ -812,6 +975,133 @@ class Validator:
             target[row["name"]].append(row)
         runtime_rows = read_tsv(root / "shared/specialist-runtime-map.tsv")
         self.specialists = Counter(row["specialist"] for row in runtime_rows)
+
+    def retired_only_skills(self) -> dict[str, list[str]]:
+        """Archive rows are legal; only a demand with no real successor fails.
+
+        Retirement is determined from the declared path even when that file
+        is missing. A second registry row alone does not prove a live successor:
+        it must name an existing, non-retired document with authored/yes state.
+        """
+        root = self.root.resolve()
+        retired_root = root / RETIRED_SKILLS_RELATIVE
+        resolved_retired_root = retired_root.resolve()
+        retired: dict[str, list[str]] = {}
+        for name, rows in self.skills.items():
+            archived: list[str] = []
+            live = False
+            for row in rows:
+                declared_path = row.get("path_or_source", "").strip()
+                if not declared_path:
+                    continue
+                path = Path(os.path.abspath(root / Path(declared_path).expanduser()))
+                if (
+                    path.is_relative_to(retired_root)
+                    or path.resolve().is_relative_to(resolved_retired_root)
+                ):
+                    archived.append(declared_path)
+                elif (
+                    row.get("type") in SKILL_LABELS
+                    and row.get("verified_state") in {"authored", "yes"}
+                    and path.is_file()
+                ):
+                    live = True
+            if archived and not live:
+                retired[name] = sorted(set(archived))
+        return retired
+
+    def validate_skill_demand(self) -> dict[str, object]:
+        """Census current doctrine, including published capability references.
+
+        Card validation also checks individual cards. This default-run census
+        closes the gap for mode/profile and specialist prose and reports unique
+        identifiers separately from their reference locations and archive rows.
+        Published cards omit private schema fields and tuple annotations, but
+        their skill cells and prose still declare dependencies under the same
+        mention-versus-demand rules.
+        """
+        paths = set(discover(self.root))
+        for pattern in (
+            "shared/capabilities/public/**/*.md",
+            "shared/specialists/*.md",
+            "shared/modes/*.md",
+            "shared/mode-profiles/**/*.md",
+            "departments/*/specialists/*.md",
+        ):
+            paths.update(self.root.glob(pattern))
+        retired = self.retired_only_skills()
+        references: dict[str, list[dict[str, object]]] = defaultdict(list)
+        mentions: dict[str, list[dict[str, object]]] = defaultdict(list)
+        errors: list[dict[str, object]] = []
+        for path in sorted(paths):
+            relative = path.relative_to(self.root).as_posix()
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeError) as exc:
+                errors.append({"code": "file-read", "file": relative, "message": str(exc)})
+                continue
+            for ref in retired_skill_references(text, retired):
+                location: dict[str, object] = {"file": relative, "line": ref.line}
+                if ref.kind == "mention":
+                    mentions[ref.name].append({**location, "reason": ref.reason})
+                else:
+                    references[ref.name].append(location)
+        # Scan the canonical source, not generated adapters. An explicit
+        # superseded/preferred record is retained migration evidence. A stub
+        # record still claims a current document and therefore remains a demand.
+        source_relative = SPECIALIST_CAPABILITY_SOURCE_RELATIVE.as_posix()
+        try:
+            _, source = load_source(self.root)
+        except (CapabilitySourceError, UnicodeError, AttributeError, TypeError) as exc:
+            errors.append({"code": "capability-source", "file": source_relative, "message": str(exc)})
+        else:
+            for index, entry in enumerate(source["entries"]):
+                for skill_index, skill in enumerate(entry.get("skills", [])):
+                    name = skill["id"]
+                    if name not in retired:
+                        continue
+                    location = {
+                        "file": source_relative,
+                        "json_path": f"$.entries[{index}].skills[{skill_index}].id",
+                        "specialist": entry["specialist"],
+                        "lane": entry["lane"],
+                        "availability": skill["availability"],
+                    }
+                    if (
+                        skill["availability"] == "superseded"
+                        and skill["evidence"] == "superseded"
+                        and skill["requirement"] == "preferred"
+                    ):
+                        mentions[name].append({**location, "reason": "declared-superseded"})
+                    else:
+                        references[name].append(location)
+        for name in sorted(references):
+            errors.append({
+                "code": "skill-retired",
+                "name": name,
+                "message": f"current doctrine demands retired-only skill {name!r}",
+                "registry_paths": retired[name],
+                "references": references[name],
+            })
+        return {
+            "type": "skill-demand",
+            "file": "current-doctrine",
+            "status": "fail" if errors else "pass",
+            "errors": errors,
+            "scanned_files": len(paths) + 1,
+            "retired_identifier_count": len(references.keys() | mentions.keys()),
+            "retired_identifiers": sorted(references.keys() | mentions.keys()),
+            "demand_count": sum(map(len, references.values())),
+            "demand_identifier_count": len(references),
+            "demand_identifiers": sorted(references),
+            "mention_count": sum(map(len, mentions.values())),
+            "mention_identifier_count": len(mentions),
+            "mention_identifiers": sorted(mentions),
+            "mentions": [
+                {"name": name, "registry_paths": retired[name], "references": mentions[name]}
+                for name in sorted(mentions)
+            ],
+        }
 
     def validate_catalog_registry(self) -> dict[str, object]:
         catalog_path = self.root / "shared/skills/catalog.txt"
@@ -876,7 +1166,11 @@ class Validator:
         }
 
     def validate_text(self, text: str, display_path: str, expected_path: Path | None) -> dict[str, object]:
-        findings: list[Finding] = []
+        retired_references = retired_skill_references(text, self.retired_only_skills())
+        findings = [
+            Finding("skill-retired", f"current demand on retired-only skill {ref.name!r}", ref.line)
+            for ref in retired_references if ref.kind == "demand"
+        ]
         frontmatter, body_start, frontmatter_findings = parse_frontmatter(text)
         findings.extend(frontmatter_findings)
         for key in REQUIRED_FRONTMATTER:
@@ -1255,6 +1549,10 @@ class Validator:
             "specialist_occurrences": len(specialist_uses),
             "tool_occurrences": len(tool_uses),
             "skill_occurrences": len(skill_uses),
+            "retired_skill_mentions": [
+                {"name": ref.name, "line": ref.line, "reason": ref.reason}
+                for ref in retired_references if ref.kind == "mention"
+            ],
         }
 
     def validate_path(self, path: Path) -> dict[str, object]:
@@ -1293,7 +1591,8 @@ def discover(root: Path) -> list[Path]:
         # capability_state, state_reason, state_evidence and cost_note -- that
         # stripping is the point, since those fields are a census of what works
         # on OUR machine. Validating a derived artifact against the source
-        # schema fails by construction; freshness is enforced instead by
+        # schema fails by construction; validate_skill_demand still scans their
+        # published references. Freshness is enforced separately by
         # tools/export/build_public_capability_cards.py --check in CI, which
         # also re-runs the private-state guard.
         and "public" not in path.relative_to(base).parts
@@ -2155,6 +2454,7 @@ def main() -> int:
         [
             validator.validate_catalog_registry(),
             *[validator.validate_path(path.resolve()) for path in paths],
+            *([validator.validate_skill_demand()] if not args.paths else []),
         ],
         explain=args.explain,
     )

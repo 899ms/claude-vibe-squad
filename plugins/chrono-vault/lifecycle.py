@@ -19,6 +19,7 @@ from clearance import (
 import curation_queue
 import index as vault_index
 import notes as vault_notes
+from privacy import redact_fields
 from vaultroot import REPO_ROOT, resolve_vault_root
 
 
@@ -360,6 +361,12 @@ def set_status(
             try:
                 for current_id in sorted(updates):
                     path, note = updates[current_id]
+                    # Legacy and hand-edited notes have not passed write-time
+                    # minimization. Screen before hashing and serializing them.
+                    # The Markdown body is emitted raw; JSON screening can reflow it.
+                    note = redact_fields(note)
+                    vault_notes._refresh_content_ref(note)
+                    updates[current_id] = (path, note)
                     stages.append(_stage_note(path, vault_notes._serialize(note)))
 
                 connection = vault_index._connect(index_dir / "kg.db", wal=True)

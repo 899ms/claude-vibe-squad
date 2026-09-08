@@ -12,6 +12,7 @@ from typing import Any
 
 import audit
 from clearance import ClearanceError, apply_record_policy
+from privacy import redact_fields, redact_json_fields, require_screened
 from vaultroot import VaultRootError, resolve_vault_root
 
 
@@ -28,7 +29,6 @@ CONTRADICTION_RELATIONSHIPS = frozenset({"new", "supersedes", "coexists-with"})
 COEXISTS_REF_PREFIX = "coexists-with:"
 COEXISTS_CONDITION_PREFIX = "coexists-condition:"
 MAX_COEXISTS_CONDITION_CHARS = 512
-ACTIVE_STATUSES = ("candidate", "verified")
 STATUSES = frozenset(
     {"candidate", "verified", "superseded", "invalidated", "archived"}
 )
@@ -241,17 +241,37 @@ def _normalize(note_type: str, fields: dict[str, Any]) -> dict[str, Any]:
     return note
 
 
+def _frontmatter_json(value: Any) -> str:
+    if isinstance(value, list):
+        return "[" + ", ".join(_frontmatter_json(item) for item in value) + "]"
+    if isinstance(value, str):
+        # Escaping must never conceal a credential in the decoded value.
+        require_screened(value)
+    encoded = json.dumps(value, ensure_ascii=False, separators=(", ", ": "))
+    try:
+        return require_screened(encoded)
+    except ValueError:
+        if not isinstance(value, str):
+            raise
+        # JSON's printable whitespace escapes can join otherwise clean text.
+        # Change only its spelling; json.loads restores every original character.
+        encoded = '"' + "".join(
+            f"\\u{ord(character):04x}" if character.isascii()
+            else json.dumps(character, ensure_ascii=True)[1:-1]
+            for character in value
+        ) + '"'
+        return require_screened(encoded)
+
+
 def _serialize(note: dict[str, Any]) -> bytes:
     lines = ["---"]
     for field in FRONTMATTER_FIELDS:
-        value = json.dumps(
-            note[field],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        )
+        # Separate structural tokens so clean list entries cannot form a URL
+        # credential match across a comma. Whitespace stays outside the values.
+        value = _frontmatter_json(note[field])
         lines.append(f"{field}: {value}")
     lines.extend(("---", ""))
-    return ("\n".join(lines) + note["body"]).encode("utf-8")
+    return require_screened("\n".join(lines) + note["body"]).encode("utf-8")
 
 
 def _directory_flags() -> int:
@@ -427,97 +447,22 @@ def _coexists_ids(note: dict[str, Any]) -> set[str]:
     }
 
 
-def _subject_key(note: dict[str, Any]) -> tuple[str, str] | None:
-    """The corpus dimension on which two notes are "about the same thing".
-
-    A concrete `component` is the sharpest subject; a real `target` is the
-    fallback. A note with neither carries too little signal to detect against
-    without flagging every target-less note against every other, so it returns
-    None (treated as no contradiction).
-    """
-    component = note.get("component")
-    if isinstance(component, str) and component.strip():
-        return "component", component
-    target = note.get("target")
-    if isinstance(target, str) and target.strip() and target != NOT_APPLICABLE:
-        return "target", target
-    return None
-
-
-def _detect_contradictions(note: dict[str, Any], root: Any) -> tuple[list[str], bool]:
-    """Best-effort candidate finder. Returns `(active_same_subject_ids, ran_ok)`.
-
-    Detection is never a gate and never a semantic judge. Any failure — no index
-    yet, a stale schema, an unreadable store — returns `([], False)` so the write
-    is recorded and flagged rather than refused. An empty but readable store
-    conclusively has no contradiction, so it returns `([], True)`.
-    """
-    subject = _subject_key(note)
-    if subject is None:
-        return [], True
-    column, value = subject
-    try:
-        from recall import _read_index
-
-        with _read_index(root) as connection:
-            if connection is None:
-                return [], True
-            rows = connection.execute(
-                "SELECT m.id FROM notes_fts "
-                "JOIN meta AS m ON m.docid = notes_fts.rowid "
-                f"WHERE notes_fts.{column} = ? "
-                f"AND m.status IN ({','.join('?' for _ in ACTIVE_STATUSES)}) "
-                "AND m.note_type = ?",
-                (value, *ACTIVE_STATUSES, note["type"]),
-            ).fetchall()
-    except Exception:  # noqa: BLE001 — detection must never break a write
-        return [], False
-    return sorted({row[0] for row in rows}), True
-
-
-def _emit_contradiction_event(
-    note_type: str,
-    note: dict[str, Any],
-    directive: dict[str, Any],
-    detected_ids: list[str],
-    detection_ok: bool,
-) -> None:
-    """Record the write-time contradiction check as one auditable declaration.
-
-    The *resolution* is the caller's declaration, recorded here for a reviewer to
-    read later — the write is never blocked and the check never grades itself.
-    An unreconciled contradiction lands as `flagged`, not a refusal.
-    """
-    relationship = directive["relationship"]
+def _emit_declared_relationship(note: dict[str, Any], directive: dict[str, Any]) -> None:
+    """Retain explicit relationships without guessing contradictions from topic."""
     declared_ids = set(note["supersedes"]) | _coexists_ids(note)
-    unreconciled = [note_id for note_id in detected_ids if note_id not in declared_ids]
-    if not detection_ok:
-        result = audit.CONTRA_INCONCLUSIVE
-    elif unreconciled:
-        result = audit.CONTRA_FLAGGED
-    elif declared_ids:
-        result = audit.CONTRA_DECLARED
-    else:
-        result = audit.CONTRA_CLEAR
-    request_hash = audit.request_digest(
-        "contradiction",
-        {
-            "note_type": note_type,
-            "target": note["target"],
-            "component": note["component"],
-            "relationship": relationship,
-        },
-    )
+    if not declared_ids:
+        return
+    relationship = directive["relationship"]
     audit.emit(
         "contradiction",
-        result=result,
-        request_hash=request_hash,
-        returned_note_ids=sorted(detected_ids),
+        result=audit.CONTRA_DECLARED,
+        request_hash=audit.request_digest(
+            "contradiction", {"note_type": note["type"], "relationship": relationship}
+        ),
+        returned_note_ids=sorted(declared_ids),
         extra={
             "relationship": relationship,
             "declared_note_ids": sorted(declared_ids),
-            "unreconciled_note_ids": sorted(unreconciled),
-            "detection_ok": detection_ok,
         },
     )
 
@@ -532,13 +477,12 @@ def record(note_type: str, fields: dict) -> dict[str, Any]:
     write can be told apart from a silent no-op. Every exception is re-raised
     exactly as before.
 
-    It also emits one `contradiction` event describing the write-time check
-    against the existing corpus (`clear`/`declared`/`flagged`/`inconclusive`).
+    Explicit relationships emit a `contradiction` event with result `declared`.
+    Automatic subject-overlap flags are retired; historical events remain.
     An optional `fields["contradiction"]` directive declares how this write
     relates to an active note — `{"relationship": "supersedes", "note_id": ...}`
     or `{"relationship": "coexists-with", "note_id": ..., "condition": ...}`.
-    A malformed directive is a `SchemaError`; a detected-but-undeclared
-    contradiction is flagged, not refused.
+    A malformed directive is a `SchemaError`.
     """
     request_hash = audit.request_digest(
         "record", {"note_type": note_type, "fields": fields}
@@ -575,15 +519,18 @@ def _record(note_type: str, fields: dict) -> dict[str, Any]:
         raise SchemaError("fields must be a dict")
     fields, directive = _extract_contradiction_directive(fields)
     note = _normalize(note_type, apply_record_policy(note_type, fields))
+    # Validate authority and shape against the caller's original values, then
+    # minimize all persisted text, including server-derived provenance fields.
+    note = redact_fields(note)
+    directive = redact_fields(directive)
+    _refresh_content_ref(note)
     root = resolve_vault_root()
 
-    # Write-time contradiction handling: reflect any declared relationship, run
-    # best-effort detection against the corpus, and record the check as one
-    # auditable declaration. None of this gates the write — a contradiction is
-    # flagged, never refused (losing a note is the worse failure).
+    # Preserve caller-declared relationships without inferring contradictions.
     _apply_declared_relationship(note, directive)
-    detected_ids, detection_ok = _detect_contradictions(note, root)
-    _emit_contradiction_event(note_type, note, directive, detected_ids, detection_ok)
+    note = redact_json_fields(note)
+    _refresh_content_ref(note)
+    _emit_declared_relationship(note, directive)
 
     root_fd = -1
     notes_fd = -1

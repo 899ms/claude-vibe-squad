@@ -212,9 +212,8 @@ def recall(
     with the campaign's start time keeps a later phase from inheriting an
     earlier phase's conclusions as if they were prior knowledge.
 
-    Each returned note carries `disputed` (bool): True when a later write flagged
-    it as contradicting an active note on the same subject and never reconciled
-    it. Treat a disputed note's claim as contested, not settled.
+    Snippets quote matching evidence. The former `disputed` field is retired;
+    negative feedback remains in score_components.usage and the curation queue.
 
     Citation is automatic: the vault records which notes this call handed you
     against this engagement's task, derived from the bound context rather than

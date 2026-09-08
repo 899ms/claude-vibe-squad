@@ -9,16 +9,17 @@ Vibe Squad currently targets macOS.
 | # | Step | Guide |
 |---|---|---|
 | 1 | Core tools (`tmux`, `fswatch`, `jq`, `curl`, Python, `uv`) | below |
-| 2 | The four provider CLIs, installed and authenticated | [provider-clis.md](provider-clis.md) |
+| 2 | The five provider CLIs, installed and authenticated | [provider-clis.md](provider-clis.md) |
 | 3 | Clone and create the Python environment | below |
 | 4 | The private memory vault | [../getting-started.md](../getting-started.md#3-create-the-private-memory-vault) |
-| 5 | Check and launch | below |
-| 6 | Optional: the launchd routines | [daemon.md](daemon.md) |
-| 7 | Optional: utility MCPs | below |
-| 8 | Optional: guarded security MCPs | [security-mcps.md](security-mcps.md) |
+| 5 | Install the local private-memory leak guard | below |
+| 6 | Check and launch | below |
+| 7 | Optional: the launchd routines | [daemon.md](daemon.md) |
+| 8 | Optional: utility MCPs | below |
+| 9 | Optional: guarded security MCPs | [security-mcps.md](security-mcps.md) |
 
-Steps 1–5 are required and that is the whole of it — a clone, an environment, a
-vault, and a launch. Steps 6–8 are optional, and skipping them must leave
+Steps 1–6 are required and that is the whole of it — a clone, an environment, a
+vault, a local leak guard, and a launch. Steps 7–9 are optional, and skipping them must leave
 everything else working — see [What "optional" means](#what-optional-means).
 
 ## 1. Core tools
@@ -38,8 +39,8 @@ for t in tmux fswatch jq curl; do command -v "$t" || echo "MISSING: $t"; done
 
 ## 2. Provider CLIs
 
-`bin/squad up` exits 1 if any of `claude`, `codex`, `gemini`, or `kimi` is
-absent. These are four different installers; see
+`bin/squad up` exits 1 if any of `claude`, `codex`, `agy` (the `gemini` lane),
+`grok`, or `kimi` is absent. These are five different installers; see
 [provider-clis.md](provider-clis.md) for each one and its authentication step.
 
 ## 3. Clone and build the Python environment
@@ -66,7 +67,37 @@ Check:
 Memory lives outside this repository. See
 [Getting started §3](../getting-started.md#3-create-the-private-memory-vault).
 
-## 5. Check and launch
+## 5. Install the local leak guard
+
+Install a reviewed snapshot of the self-contained private-memory leak guard in
+Git's private hooks directory:
+
+```bash
+bash docs/install/install-pre-commit-hook.sh
+```
+
+The installer refuses to replace an unrelated existing pre-commit hook. It
+also removes the retired local `core.hooksPath=.githooks` setting, because that
+setting lets the checked-out branch replace the code executed by a later
+commit. If a global or system value still overrides Git's private hooks
+directory, the installer fails and reports its origin instead of claiming the
+guard is active. Remove that setting from the reported scope and rerun the
+installer after pulling an intentional leak-guard update.
+
+Check:
+
+```bash
+test -x "$(git rev-parse --path-format=absolute --git-common-dir)/hooks/pre-commit"
+bash bin/doctor.sh --check-pre-commit-hook   # expect an OK line and exit 0
+git config --show-origin --get-all core.hooksPath  # expect no output and exit 1
+git hook run pre-commit                            # expect no output and exit 0 on a clean index
+```
+
+The local hook blocks private-memory artifacts. The broader specialist,
+capability, and format checks run in CI, where a contributor branch cannot
+replace a developer's local executable hook.
+
+## 6. Check and launch
 
 ```bash
 bin/squad doctor
@@ -81,7 +112,7 @@ up` prints one notice naming what the absent daemon would have added, and
 continues. Everything below this line is an addition to a working install, not a
 prerequisite for one.
 
-## 6. The launchd routines (optional)
+## 7. The launchd routines (optional)
 
 `com.vibesquad.daemon` adds the live `● daemon` and per-lane segments in the
 tmux status bar, and the documented `POST /mcp/<server>/<tool>` HTTP bridge.
@@ -102,7 +133,7 @@ Check:
 bash bin/install-routines.sh --status
 ```
 
-## 7. Utility MCPs (optional)
+## 8. Utility MCPs (optional)
 
 Memory, research, and media integrations. These are not model transports —
 model inference always runs through the native CLIs.
@@ -118,7 +149,7 @@ Check:
 bash scripts/bootstrap-mcps.sh --status
 ```
 
-## 8. Guarded security MCPs (optional)
+## 9. Guarded security MCPs (optional)
 
 `guarded-semgrep`, `guarded-slither`, and `guarded-solodit` run behind the Trail
 of Bits context-protector wrapper, which is a large third-party checkout that
@@ -147,7 +178,7 @@ Concretely:
   unaffected. An *installed but broken* daemon is a different case and still
   blocks the launch — see [daemon.md](daemon.md).
 
-The four provider CLIs are **not** optional: `bin/squad up` blocks on them.
+The five provider CLIs are **not** optional: `bin/squad up` blocks on them.
 Neither are `tmux`, `fswatch`, `jq`, `curl`, Python 3.13, and `uv`. Those are
 third-party tools doing real work, and requiring them is the point; a background
 launchd job of our own is not in that category, which is why it stopped being a

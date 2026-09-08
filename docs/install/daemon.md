@@ -10,6 +10,91 @@ NOTICE: the optional launchd daemon is not installed — continuing without it.
 `launchd/` holds *templates*, not installable plists. `bin/install-routines.sh`
 renders and installs them.
 
+## Security: every listed agent runs code from your checkout
+
+This is a property of the design, stated plainly so you can decide with it in
+hand. `bin/install-routines.sh` renders each plist so its `ProgramArguments`
+resolve **inside the checkout** (`__VAULT_ROOT__/bin/...`), and it takes no
+immutable snapshot of that code. Every launch re-reads whatever is checked out at
+that moment. So if you check out a branch you have not reviewed — a pull request
+from a fork above all — in a clone where these agents are loaded, the agent runs
+*that branch's* code as your user, without a merge, a commit, or any further
+command from you. Two of these agents also run with more than your login:
+
+- **`com.vibesquad.daemon` and `com.claudevibesquad.nightly` source your entire
+  `$HOME/.config/shell/secrets.zsh`** before running checkout code
+  (`bin/daemon-launcher.sh:7-10`, `bin/run-nightly.sh:45-50`), so that execution
+  carries the credentials in that file, not just your file access.
+- **`com.vibesquad.chrome` owns your authenticated browser.**
+  `bin/chrome-bootstrap.sh` launches Chrome on your persistent profile with CDP on
+  `127.0.0.1:9222` and no authentication, so replacing that one file gives an
+  attacker every logged-in session and cookie you hold — no secrets file needed.
+
+### The installer manages three of these agents; two more can be running that it never sees
+
+Run the full `bin/install-routines.sh` and it installs **three** checkout-rooted
+agents. But `launchd/` also ships two more checkout-rooted templates that **no
+command in this repository installs, removes, or reports** — they are loaded by
+hand, and `bin/install-routines.sh --status` lists only the three it manages, so a
+reader who trusts that status output will believe they are covered when they are
+not. Depending on your machine, up to five checkout-rooted agents can be loaded at
+once:
+
+| Label | Re-executes checkout code | Extra authority on compromise | Installed / removed by |
+|---|---|---|---|
+| `com.vibesquad.daemon` | continuously (`KeepAlive`) | your shell secrets (sources `secrets.zsh`) | `bin/install-routines.sh` |
+| `com.claudevibesquad.nightly` | daily at 03:00 | your shell secrets (sources `secrets.zsh`) | `bin/install-routines.sh` |
+| `com.vibesquad.dream` | daily at 03:00 | your user (no secrets sourced) | `bin/install-routines.sh` |
+| `com.chrono.squad-monitor` | **every 120 seconds** | your user (no secrets sourced) | **no repo command — by hand** |
+| `com.vibesquad.chrome` | continuously (`KeepAlive`) | your authenticated browser (CDP :9222) | **no repo command — by hand** |
+
+The sharpest fact is the cadence: `com.chrono.squad-monitor` re-executes
+`bin/squad-monitor.sh` from the checkout **every two minutes**, unconditionally, so
+the realistic window between checking out a hostile branch and running its code is
+about two minutes — not a restart or an overnight wait.
+
+`com.chrono.dream` and `com.chrono.caffeinate` are **not** on this list on purpose:
+`com.chrono.dream` runs `$HOME/chrono/bin/run-dream.sh` (outside the checkout) and
+`com.chrono.caffeinate` runs `/usr/bin/caffeinate`, so neither executes checkout
+code.
+
+### Unload before checking out a branch you have not reviewed, then reload
+
+Unloading stops the running job but leaves the plist file in place, so you can
+reload it afterwards. Substitute each label you have loaded:
+
+```bash
+launchctl bootout gui/$(id -u)/<label>                                       # unload
+launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/<label>.plist"  # reload
+```
+
+For example, to unload the daemon and the two hand-installed agents before
+inspecting an untrusted branch:
+
+```bash
+launchctl bootout gui/$(id -u)/com.vibesquad.daemon
+launchctl bootout gui/$(id -u)/com.chrono.squad-monitor
+launchctl bootout gui/$(id -u)/com.vibesquad.chrome
+```
+
+Reload each with `launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/<label>.plist"`
+once you are back on a branch you trust.
+
+- For the **three the installer manages** (`com.vibesquad.daemon`,
+  `com.claudevibesquad.nightly`, `com.vibesquad.dream`) you can reload instead by
+  re-running `bash bin/install-routines.sh` (or `--daemon-only`), which
+  re-bootstraps any that are not loaded.
+- For **`com.chrono.squad-monitor` and `com.vibesquad.chrome`** no repo command
+  will do it — use the `launchctl` commands by hand.
+
+`bootout` here is not an uninstall: it leaves the plist in
+`~/Library/LaunchAgents`, which is why `bootstrap` can reload it. Removing the
+plist file as well is the separate [Uninstall](#uninstall) step.
+
+**This state is known and tracked.** A change that separates the installed,
+immutable code root from the live data root is planned; until it lands,
+unload-before-untrusted-checkout is the supported mitigation.
+
 ## What it adds, and what you lose without it
 
 The daemon is a local FastAPI process on `127.0.0.1:9876` (`daemon/main.py`).

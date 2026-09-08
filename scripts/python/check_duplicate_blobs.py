@@ -495,8 +495,10 @@ def policy_violations(
             continue
         if _is_validator_backed_skill_mirror(census, blob, members):
             continue
-        violations.append(f"undeclared identical-blob group {blob}:")
-        violations.extend(f"  {path!r}" for path in sorted(members))
+        violations.append(
+            f"undeclared identical-blob group {blob}:\n"
+            + "\n".join(f"  {path!r}" for path in sorted(members))
+        )
 
     for members, entry in sorted(
         declared.items(), key=lambda item: item[1].blob_group

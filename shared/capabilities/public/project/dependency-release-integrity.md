@@ -28,7 +28,7 @@ deletes are operator-gated.
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall) |
 | **S1** Frame (trust scope + policy) | `product-manager`, `software-supply-chain-engineer` | — | `scope-decomposition` | — |
 | **S2** Design (dep graph + advisory plan) | `software-supply-chain-engineer`, `security-analyst` | — | `dependency-cycle-audit` | — |
-| **S3** Produce (SCA + secret + advisory audit) | `software-supply-chain-engineer`, `security-analyst` | `osv-scanner`, `gitleaks`, `trufflehog`, `trivy`, `semgrep`, `codex --search` | `known-advisory-backport-check`, `secret-rotation-discipline` | `credential_change` (secret rotation) |
+| **S3** Produce (SCA + secret + advisory audit) | `software-supply-chain-engineer`, `security-analyst` | `osv-scanner`, `gitleaks`, `trufflehog`, `trivy`, `semgrep`, `codex --search` | `known-advisory-backport-check` | `credential_change` (secret rotation) |
 | **S4** Verify (integrity + provenance) | `software-supply-chain-engineer`, `skeptic` | `plugin:github:github` | — | signing / attestation / SBOM = `needs_tool` (no verified signing tool) |
 | **S5** Review/Gate (approval) | `code-reviewer`, `cross-family-reviewer`, `operator` | `codex review`, `claude --from-pr` | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer); `credential_change`, `public_release`, `delete` |
 | **S6** Ship/Deliver (release evidence) | `software-supply-chain-engineer`, `technical-writer` | `plugin:github:github` | — | `public_release` |

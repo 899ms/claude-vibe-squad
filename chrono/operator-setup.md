@@ -61,7 +61,7 @@ Do not ask the operator to hand-edit runtime system files while away. Use dispat
 - Chrono dispatches specialists, not departments.
 - `to_model` selects the visible model lead.
 - `source_namespace` selects specialist markdown/source storage.
-- `compatibility_namespace` selects the mailbox folder for the task packet.
+- `compatibility_namespace` is a legacy label and does not select the mailbox; `CANONICAL_MAILBOX_ROOT` in `scripts/python/dispatch_context_builder.py` fixes transport at `departments/coding`.
 - `shared/specialist-runtime-map.tsv` is the routing source of truth.
 - `model-lanes/ROSTER.md` is the human-readable roster generated from that map.
 

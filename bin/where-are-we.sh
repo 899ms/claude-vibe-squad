@@ -209,7 +209,7 @@ hr
 color '1;33' '## SQUAD TMUX'
 if tmux has-session -t squad 2>/dev/null; then
     color '0;32' '  ✓ session "squad" is up'
-    for lane in chrono gpt-codex claude gemini kimi watchers; do
+    for lane in chrono watchers; do
         w="$(runtime_window_name "$lane")"
         if ! tmux list-windows -t squad -F '#{window_name}' 2>/dev/null | grep -qx "$w"; then
             color '1;31' "    ${w}: missing window"
@@ -224,7 +224,10 @@ fi
 echo ""
 
 color '1;36' "═════════════════════════════════════════════════════════════"
-echo "  Per-pane scrollback log: ${VAULT_ROOT}/_state/tmux-logs/<model-lane>.log"
+echo "  Coordinator capture:     ${VAULT_ROOT}/_state/tmux-logs/chrono.log"
+echo "  Watchers capture:        ${VAULT_ROOT}/_state/tmux-logs/watchers-status.log"
+echo "  Specialist attempt logs: ${VAULT_ROOT}/_state/board-dispatch/<task>.<attempt>.log"
+echo "  Attempt receipts:        ${VAULT_ROOT}/_state/board-dispatch/<task>.<attempt>.receipt.json"
 echo "  Full dispatch history:   ${VAULT_ROOT}/_state/dispatch-log.jsonl"
 echo "  Morning brief:           ${VAULT_ROOT}/_state/morning-briefs/${DATE}.md"
 color '1;36' "═════════════════════════════════════════════════════════════"

@@ -25,7 +25,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## Task-shape → specialist decision guide
 
-Recommend the **most specific** specialist for the task shape — never a generalist by default. Lane assignment is taken from `shared/specialist-runtime-map.tsv` (the canonical source, not repeated here); still deliberately spread work across all four models, per selection rule 3 below. Chrono owns the final dispatch — this is a recommendation.
+Recommend the **most specific** specialist for the task shape — never a generalist by default. Lane assignment is taken from `shared/specialist-runtime-map.tsv` (the canonical source, not repeated here); still deliberately spread work across the mapped lanes, per selection rule 3 below. Chrono owns the final dispatch — this is a recommendation.
 
 | Task shape | Recommend |
 |---|---|
@@ -36,9 +36,9 @@ Recommend the **most specific** specialist for the task shape — never a genera
 | CI / IaC / release rails / tool + MCP wiring / infra | `devops-engineer` |
 | Hot-path / profiling / benchmark | `performance-optimizer` |
 | Tests / fixtures / regression coverage | `test-engineer` |
-| Frontend / component / UI (Gemini visual review) | `frontend-engineer` / `ui-engineer` |
+| Frontend / component / UI | `frontend-engineer` / `ui-engineer` |
 | PoC / repro harness (authorized) | `exploit-developer` |
-| Data extraction / parsing / schema (bulk → Kimi backup) | `data-extraction-engineer` |
+| Data extraction / parsing / schema | `data-extraction-engineer` |
 | Architecture / design / tradeoffs | `architect` |
 | Requirements / scope / acceptance | `product-manager` |
 | Dispatch planning / multi-step sequencing | `planner` |
@@ -68,7 +68,7 @@ Recommend the **most specific** specialist for the task shape — never a genera
 
 1. **NEVER route review / audit / verify work to an implementer.** Review belongs to `code-reviewer`, `skeptic`, `impact-validator`, `vibecoding-check`, or `content-verifier` (or the packet's configured `review_model`). An implementer role reviewing loads the wrong prompt — the reviewer's adversarial + author-family anti-affinity discipline is absent.
 2. **`systems-engineer` is not the default.** Its own brief says skip it ~95% of the time — use it ONLY for genuine low-level / cross-arch / SIMD / runtime work. Route general implementation to `backend-engineer`, infra/tool-wiring to `devops-engineer`, persistence to `database-engineer`, hot-paths to `performance-optimizer`, docs to `technical-writer`.
-3. **Deliberately fan across all four models.** Gemini owns grounded research (`bounty-researcher`, Google Search grounding), `large-context-analyst`, content/text, and tool-gated media; Kimi owns the allowlisted `summarizer` and `kestrel` primaries plus gated bulk throughput — `data-extraction-engineer` is codex-primary and uses Kimi only as an operational backup, not throughput; Claude owns judgment / security-reasoning / review; Codex owns implementation / PoC / tests and `experimental-attacker` breadth (leads only). Do not collapse everything onto Claude + Codex.
+3. **Deliberately use the mapped lanes — do not collapse everything onto Claude + Codex.** Pick the specialist by task shape, then read its primary, backup, review, escalation, and throughput lanes from `shared/specialist-runtime-map.tsv`. That map is the one home for lane bindings, so this brief does not restate them — a per-role lane restated here is exactly what drifts out of agreement with the map. The map deliberately spreads ownership across the model families; honor that spread rather than defaulting every task to Claude or Codex.
 
 ## When to escalate
 

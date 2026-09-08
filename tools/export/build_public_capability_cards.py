@@ -78,10 +78,9 @@ LEAK_VOCAB = [
     r"\bmeasured census\b",
     r"\bprobe-verified\b",
     r"\bTASK-[0-9]",
-    # Added after a MANUAL sweep found these surviving a green run. The guard
-    # reported "no private state detected" while our lifetime bounty conversion
-    # rate sat in three generated cards. Blocklists only catch what was thought
-    # of, which is why a human read of the output is required, not optional.
+    # Added after a manual sweep found private numeric engagement material
+    # surviving a green run in generated cards. Blocklists only catch what was
+    # anticipated, so a human read of the output remains required.
     r"\d+\s*/\s*\d+\s+lifetime",
     r"\bThe moat is\b",
     r"\b49k-finding\b",
@@ -100,10 +99,8 @@ PRIVATE_FENCE = re.compile(
 # keep every word. Each follows one principle: the DISCIPLINE publishes, the
 # NUMBERS and the POSITIONING do not.
 #
-#   "only intrinsic-impact deterministic findings convert"  -> publishes. It is
-#   operating discipline an adopter can act on.
-#   "(~1/21 lifetime)"                                      -> redacted. That is
-#   our measured conversion rate, and a number we paid for.
+#   Transferable operating discipline                       -> publishes.
+#   A private lifetime numerator/denominator parenthetical  -> redacted.
 #   "The moat is beyond commodity tools+chaining: <list>"   -> the list is method
 #   and stays; the "our moat" framing is positioning and goes.
 #   "kimi `primary_exception`"                              -> internal routing.

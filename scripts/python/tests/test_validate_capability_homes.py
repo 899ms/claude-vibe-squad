@@ -603,7 +603,7 @@ class CapabilityHomeTests(unittest.TestCase):
                 "kind": "skills",
                 "identifier": "citation-audit",
                 "retired_on": "2026-08-29",
-                "source_task": "TASK-2026-08-29-1300-u15",
+                "source_task": "TASK-2099-01-01-0001-example-retirement",
                 "reason": "evidence-backed stale pointer retired from the capability source",
             },
             retirements,

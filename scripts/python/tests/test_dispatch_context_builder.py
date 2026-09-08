@@ -5,10 +5,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
 import threading
+import textwrap
 import unittest
 from unittest import mock
 
@@ -19,6 +21,7 @@ if str(PYTHON_DIR) not in sys.path:
     sys.path.insert(0, str(PYTHON_DIR))
 
 import dispatch_context_builder as dcb  # noqa: E402
+import dispatch_preflight as preflight  # noqa: E402
 from verification_contract import derive_verification_contract  # noqa: E402
 from scripts.python.tests.ci_host_independence import (  # noqa: E402
     skip_in_host_independent_ci,
@@ -87,6 +90,150 @@ EXPECTED_AUTHORITY_FIELDS = {
 
 
 class DispatchContextBuilderTests(unittest.TestCase):
+    @staticmethod
+    def _supervisor_scope_guard(authority: dict) -> subprocess.CompletedProcess[str]:
+        # Execute the actual guard without starting a supervisor or model CLI.
+        source = (ROOT / "bin/board-supervisor.sh").read_text(encoding="utf-8")
+        start = source.index('write_paths = authority["write_paths"]')
+        end = source.index("launch_timeout = 180.0", start)
+        guard = source[start:end]
+        program = (
+            "import json, sys\n"
+            "authority = json.loads(sys.argv[1])\n"
+            "def deny(reason):\n"
+            "    print(reason)\n"
+            "    raise SystemExit(74)\n"
+            + guard + "\nprint('supervisor scope guard: allow')\n"
+        )
+        return subprocess.run(
+            [sys.executable, "-c", program, json.dumps(authority)],
+            capture_output=True, text=True, timeout=10,
+        )
+
+    def test_empty_scope_survives_preflight_context_and_supervisor_guard(self) -> None:
+        for specialist in ("code-reviewer", "security-analyst", "skeptic", "architect"):
+            for scope, typed in (("[]", False), ("[]", True), ("[_state/canary/]", False)):
+                with self.subTest(specialist=specialist, scope=scope, typed=typed):
+                    with tempfile.TemporaryDirectory() as directory:
+                        lane = "claude" if specialist == "skeptic" else "codex"
+                        model = "claude" if lane == "claude" else "gpt-codex"
+                        root, packet = self._fake_repo_for_lane(
+                            Path(directory), lane=lane, model=model,
+                            specialist=specialist,
+                        )
+                        packet.write_text(packet.read_text().replace(
+                            "write_scope: [_state/canary/]", f"write_scope: {scope}"
+                        ))
+                        if typed:
+                            from scripts.python.tests.test_review_enforcement import TypedReviewContractTests
+                            fields, _ = dcb.parse_task_packet(packet)
+                            entry = TypedReviewContractTests.entry(specialist)
+                            entry["verification_contract"]["task_id"] = fields["id"]
+                            entry["verification_contract_sha256"] = hashlib.sha256(
+                                dcb._canonical_json(entry["verification_contract"])
+                            ).hexdigest()
+                            fields.update({key: value for key, value in TypedReviewContractTests.fields(entry).items()
+                                           if key != "id"})
+                            packet.write_text("---\n" + "\n".join(
+                                f"{key}: {value}" for key, value in fields.items()
+                            ) + "\n---\n\nReview the frozen subject.\n")
+                        verdict = preflight.evaluate_packet(root, packet)
+                        self.assertEqual(verdict.exit_code, 0, verdict.as_dict())
+                        with mock.patch.dict(dcb.LANE_CLI_PATHS, {lane: Path("/bin/sh")}):
+                            context = dcb.build_context(
+                                root, packet, attempt_id="d-" + "9" * 32,
+                                generation=1,
+                            )
+                        authority = context["authority"]
+                        self.assertEqual(authority["write_paths"],
+                                         [] if scope == "[]" else ["_state/canary"])
+                        self.assertIn(str(packet.relative_to(root)), authority["read_scope"])
+                        self.assertEqual(authority["expected_result_path"], "_state/canary/result.md")
+                        result = self._supervisor_scope_guard(authority)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                        worktree = Path(directory) / "worker"
+                        artifact = worktree / authority["expected_result_path"]
+                        artifact.parent.mkdir(parents=True)
+                        artifact.write_text("Read-only inspection result.\n")
+                        outbox = worktree / authority["expected_outbox_path"]
+                        outbox.parent.mkdir(parents=True, exist_ok=True)
+                        outbox.write_text(
+                            "---\n"
+                            f"id: {authority['task_id']}-response\n"
+                            f"in_response_to: {authority['task_id']}\n"
+                            f"from: {model}\n"
+                            "to: chrono\ntype: RESULT\nstatus: complete\n"
+                            f"return_artifact: {authority['expected_result_path']}\n"
+                            "---\n\nRead-only inspection completed.\n"
+                        )
+                        receipt = dcb.bridge_worktree_outputs(root, worktree, authority)
+                        self.assertTrue(receipt["artifact_published"])
+                        self.assertTrue(receipt["envelope_published"])
+                        self.assertEqual((root / authority["expected_result_path"]).read_text(),
+                                         "Read-only inspection result.\n")
+
+    def test_empty_logical_scope_seals_only_exact_delivery_paths(self) -> None:
+        from dataclasses import replace
+        from scripts.python.tests.test_runtime_envelope import claims
+        from runtime_envelope import EnvelopeError, seal_runtime_envelope
+
+        source = (ROOT / "bin/board-supervisor.sh").read_text()
+        start = source.index('    worker_write_scope = tuple(worker_scope_path')
+        end = source.index('    claims = RuntimeEnvelopeClaims(', start)
+        import textwrap
+        block = textwrap.dedent(source[start:end])
+        for scope in ([], ["out"]):
+            with self.subTest(scope=scope):
+                authority = {"write_paths": scope, "read_scope": [],
+                             "expected_result_path": "out/result.md",
+                             "expected_outbox_path": "out/response.md"}
+                namespace = {"authority": authority,
+                             "worker_scope_path": lambda path: "/repo/" + path}
+                exec(compile(block, "supervisor-worker-scope", "exec"), namespace)
+                writes = namespace["worker_write_scope"]
+                expected = ("/repo/out",) if scope else (
+                    "/repo/out/result.md", "/repo/out/response.md")
+                self.assertEqual(writes, expected)
+                self.assertEqual(authority["write_paths"], scope)
+                bound = replace(claims(), write_scope=writes)
+                seal_runtime_envelope(bound, b"test-signing-key")
+                with self.assertRaisesRegex(EnvelopeError, "outside the authorized"):
+                    seal_runtime_envelope(
+                        replace(bound, expected_result_path="/repo/unrelated.md"),
+                        b"test-signing-key",
+                    )
+
+    def test_supervisor_scope_guard_retains_type_checks(self) -> None:
+        for write_paths, read_scope in (
+            (None, ["packet.md"]), ("[]", ["packet.md"]), ([1], ["packet.md"]),
+            ([], None), ([], "packet.md"), ([], [1]),
+        ):
+            with self.subTest(write_paths=write_paths, read_scope=read_scope):
+                result = self._supervisor_scope_guard(
+                    {"write_paths": write_paths, "read_scope": read_scope}
+                )
+                self.assertEqual(result.returncode, 74, result.stdout + result.stderr)
+                self.assertIn("invalid logical read/write scopes", result.stdout)
+
+    def test_supervisor_keeps_exact_packet_read_requirement(self) -> None:
+        source = (ROOT / "bin/board-supervisor.sh").read_text(encoding="utf-8")
+        start = source.index("    packet_scope_pattern = re.compile(")
+        end = source.index("    packet_path = repo_path / packet_scope_entries[0]", start)
+        guard = compile(textwrap.dedent(source[start:end]), "supervisor-packet-read-guard", "exec")
+        task_id = "TASK-2026-09-07-0001-read-control"
+        packet = f"departments/coding/inbox/{task_id}.md"
+
+        def deny(reason: str) -> None:
+            raise ValueError(reason)
+
+        for reads in ([], ["other.md"], [packet, packet]):
+            with self.subTest(reads=reads):
+                with self.assertRaisesRegex(ValueError, "must name the exact inbox packet"):
+                    exec(guard, {"re": re, "task_id": task_id,
+                                 "authority": {"read_scope": reads}, "deny": deny})
+        exec(guard, {"re": re, "task_id": task_id,
+                     "authority": {"read_scope": [packet]}, "deny": deny})
+
     def test_context_admission_requires_return_artifact_by_both_names(self) -> None:
         base_fields = {
             "source_namespace": "coding",
@@ -297,7 +444,15 @@ class DispatchContextBuilderTests(unittest.TestCase):
                     "claude.opus5.max",
                     "claude.opus5.xhigh",
                 },
-                "codex": {"codex.sol.high", "codex.sol.ultra"},
+                # Runtime-map selections include Astra and daybreak;
+                # Terra remains unselected and optional-routine.
+                "codex": {
+                    "codex.astra.high",
+                    "codex.astra.max",
+                    "codex.daybreak.default",
+                    "codex.sol.high",
+                    "codex.sol.ultra",
+                },
                 "gemini": {"gemini.flash.default", "gemini.flash.high"},
                 # Profiles are inventoried from live runtime-map selections;
                 # 4.5 is available for overrides but Smokey selects 4.6.
@@ -1378,6 +1533,17 @@ class DispatchContextBuilderTests(unittest.TestCase):
             )
 
 class OutputBridgeTests(unittest.TestCase):
+    def test_bridge_rejects_malformed_scope_and_nonempty_scope_mismatch(self) -> None:
+        task_id = "TASK-2026-07-24-9996-advisory-bridge"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for scope in (None, "[]", {}, [None], ["unrelated.md"]):
+                with self.subTest(scope=scope):
+                    authority = self._authority(task_id)
+                    authority["write_paths"] = scope
+                    with self.assertRaisesRegex(dcb.DispatchContextError, "write scope is invalid"):
+                        dcb.prepare_worktree_outputs(root, root, authority)
+
     @staticmethod
     def _authority(task_id: str) -> dict[str, object]:
         result = "_state/cutover-canary/ok.md"

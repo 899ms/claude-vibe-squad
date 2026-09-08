@@ -212,7 +212,7 @@ class InterruptionRestartCanaries(unittest.TestCase):
             mock.patch.object(resume, "open_work_items", return_value=[]),
         ):
             stubbed = resume._render(
-                "continue Atlas", EMPTY_VIEW, max_tokens=3000, unreconciled=0
+                "continue Atlas", EMPTY_VIEW, max_tokens=3000
             )
 
         with self.assertRaises(AssertionError):
@@ -266,18 +266,18 @@ class InterruptionRestartCanaries(unittest.TestCase):
             ["- [ ] validate CASE-17"],
         )
         self.start_campaign()
-        self.append_event(
-            "start",
-            item_id="BUG-1",
-            summary="broken implicit promotion of the lock-race interruption",
-            why="a switch event was omitted",
-            next_action="reproduce the lock race",
-        )
-
+        before = self.ledger.read_bytes()
         with self.assertRaisesRegex(
             workboard.WorkboardConsistencyError, "exactly one active item"
         ):
-            workboard.load_workboard(self.ledger, strict=True)
+            self.append_event(
+                "start",
+                item_id="BUG-1",
+                summary="broken implicit promotion of the lock-race interruption",
+                why="a switch event was omitted",
+                next_action="reproduce the lock race",
+            )
+        self.assertEqual(self.ledger.read_bytes(), before)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from clearance import ClearanceError, can_read, lane_clearance, recall_constrain
 import index as vault_index
 from index import FTS_COLUMNS, INDEX_SCHEMA_VERSION
 from query import TOKEN_PATTERN, build_fts_query
+from privacy import redact_text, require_screened
 from vaultroot import VaultRootError, resolve_vault_root
 
 
@@ -434,22 +435,32 @@ def _read_index(root: Path) -> Iterator[sqlite3.Connection | None]:
 
 
 def _quoted_snippet(body: str) -> str:
+    # FTS supplies match markers around evidence in its selected passage. Keep
+    # the first match inside the character budget even after a very long token.
+    match = body.find("\x01")
+    start = max(0, match - 160) if match >= 0 else 0
+    if start:
+        boundary = body.rfind("\n", start, match)
+        if boundary >= 0:
+            start = boundary + 1
+    body = ("…" if start else "") + body[start:]
+    body = redact_text(body.replace("\x01", "").replace("\x02", ""))
     normalized = "".join(
         character
         if character in "\n\t" or ord(character) >= 32
         else "�"
         for character in body
     )
-    quoted = "\n".join(f"> {line}" for line in normalized.splitlines())
+    quoted = redact_text("\n".join(f"> {line}" for line in normalized.splitlines()))
     if not quoted:
         quoted = "> "
     if len(quoted) > MAX_QUOTED_CONTENT_CHARS:
         quoted = quoted[: MAX_QUOTED_CONTENT_CHARS - 1] + "…"
-    return (
+    return require_screened(redact_text(
         "[BEGIN QUOTED UNTRUSTED NOTE]\n"
         f"{quoted}\n"
         "[END QUOTED UNTRUSTED NOTE]"
-    )
+    ))
 
 
 def _note_link(root: Path, absolute_path: str) -> str:
@@ -496,47 +507,6 @@ def _is_fts_syntax_error(error: sqlite3.OperationalError) -> bool:
             "unknown special query",
         )
     )
-
-
-def _unreconciled_note_ids(audit_dir: Path | None = None) -> frozenset[str]:
-    """Note ids left in an unreconciled contradiction, read from the audit trail.
-
-    A write that contradicts an active note on the same subject and does not
-    declare the relationship is recorded — never refused — as one ``contradiction``
-    audit event with result ``flagged``, naming the contradicted notes in
-    ``unreconciled_note_ids`` (see ``notes._emit_contradiction_event``). That event
-    is the ONLY record that a stored note is disputed: the fact lives nowhere on
-    the note or the index, which is why a reader receiving the note today cannot
-    tell it is contested. This reads it back so ``recall`` can mark the note.
-
-    The flagged events under ``<audit_dir>/contradiction/`` are the single source;
-    ``chrono_state.resume`` counts the same set for the capsule. Best-effort by
-    construction — an unresolved trail, or an unreadable or malformed event, yields
-    no marks rather than breaking the recall it annotates, mirroring the never-gate
-    rule the write path already follows. Cost is one directory scan per non-empty
-    recall (O(events)); an index would be faster but is the machinery this fix
-    deliberately does not build.
-    """
-    if audit_dir is None:
-        audit_dir = audit.resolve_audit_dir()
-    if audit_dir is None:
-        return frozenset()
-    try:
-        events = list((audit_dir / "contradiction").glob("evt-*.json"))
-    except OSError:
-        return frozenset()
-    disputed: set[str] = set()
-    for event_path in events:
-        try:
-            event = json.loads(event_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
-        if not isinstance(event, dict) or event.get("result") != audit.CONTRA_FLAGGED:
-            continue
-        ids = event.get("unreconciled_note_ids")
-        if isinstance(ids, list):
-            disputed.update(note_id for note_id in ids if isinstance(note_id, str))
-    return frozenset(disputed)
 
 
 def _record_returns(
@@ -605,12 +575,9 @@ def recall(query: str, filters: dict = None, limit: int = 8) -> dict[str, Any]:
     below (for example, recalling on behalf of an internal-tier destination).
     It intersects with this process's clearance and can never widen it.
 
-    Each returned note carries `disputed` (bool): True when the note is left in
-    an unreconciled contradiction that a later write flagged but never reconciled
-    (`_unreconciled_note_ids`), or when usage history contains an ``incorrect``
-    outcome. The reader is thereby told a demoted note is contested instead of
-    receiving it as if settled; scoring never removes the note from its lifecycle
-    surface.
+    Snippets quote an FTS-selected matching passage, including matches in label
+    or evidence fields. Negative usage remains visible in score_components.usage
+    and influences ranking; the former subject-overlap `disputed` flag is retired.
 
     Every call emits exactly one audit event (best-effort, never gating). The
     event's `result` distinguishes a recall that matched nothing from one that
@@ -788,6 +755,7 @@ def _recall(
             SELECT
                 m.id, m.path, m.status, m.sensitivity, m.content_hash,
                 m.mtime_ns, m.note_type, notes_fts.title, notes_fts.body,
+                snippet(notes_fts, -1, char(1), char(2), '…', 32) AS evidence,
                 bm25(notes_fts, {weight_sql}) AS lexical_rank,
                 COALESCE(u.used_count, 0) AS used_count,
                 COALESCE(u.not_useful_count, 0) AS not_useful_count,
@@ -863,7 +831,7 @@ def _recall(
                         "weights": weight_components,
                         "recency_tiebreak_ns": int(row["mtime_ns"]),
                     },
-                    "snippet": _quoted_snippet(row["body"]),
+                    "snippet": _quoted_snippet(row["evidence"]),
                     "note_link": note_link,
                     "status": row["status"],
                     "sensitivity": row["sensitivity"],
@@ -876,18 +844,6 @@ def _recall(
                     },
                 }
             )
-
-    # P13.66 — surface the write-time contradiction the audit trail already
-    # recorded. A note left in an unreconciled contradiction is disputed, and the
-    # reader must be told so on the note itself. One scan, only when there is
-    # something to mark; `disputed` is present on every returned note (False on a
-    # clean one) so a consumer can rely on the key.
-    disputed_ids = _unreconciled_note_ids() if results else frozenset()
-    for row in results:
-        row["disputed"] = (
-            row["id"] in disputed_ids
-            or row["score_components"]["usage"]["incorrect"] > 0
-        )
 
     # Skipped when nothing was returned: an empty recall must never create
     # index storage (test_missing_index_returns_empty_without_creating_storage

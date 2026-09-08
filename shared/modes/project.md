@@ -101,8 +101,9 @@ operator-gated (Hard Rule 6). See the Memory Curation Sweep note below.
 
 `incident` folds in as a **mode-level reactive workflow**, not a registry Capability (it has no cards). Use
 it when something is broken: stabilize with the smallest reversible fix, preserve volatile evidence and
-chain of custody before changing state, and require multi-model review for security/auth/secrets/network
-incidents. Reliability-only incidents lead with `site-reliability-engineer`; suspected compromise leads with
+chain of custody before changing state, and apply the review gate in
+`shared/protocol.md` § Mandatory Review Behavior. Reliability-only incidents lead with
+`site-reliability-engineer`; suspected compromise leads with
 `incident-responder` (evidence-preserving, hands observed TTPs to `detection-engineer`). See the Incident
 flow note under Gates.
 
@@ -144,7 +145,7 @@ a license by default; an unanswered license choice remains an explicitly reporte
 - **Operations / maintenance:** cleanup proposals are not cleanup approval; one writer owns each path during
   execution; keep private/runtime artifacts out of public release.
 - **Incident:** capture volatile evidence before changing state; use the smallest reversible fix first;
-  security/auth/secrets/network incidents require multi-model review.
+  apply `shared/protocol.md` § Mandatory Review Behavior when authoring the packet.
 
 ## Memory Curation Sweep (operations family)
 
@@ -170,8 +171,8 @@ a license by default; an unanswered license choice remains an explicitly reporte
   low-level/cross-arch/SIMD/runtime work, never the catch-all.
 - **Never route Phase 5 review to a Phase 4 implementer.** Review is `code-reviewer` / `skeptic` (or the
   packet `review_model`), cross-family from the author.
-- Security-touching design, auth, privacy, secrets, or public release work requires review from a different
-  model family.
+- Derive the packet's review requirement from `shared/protocol.md` § Mandatory Review Behavior.
+  That section also governs the reviewer binding.
 - Parallel comparison uses independently dispatched single tasks; in-process subagents remain a worker-local
   execution detail. Neither creates another mode or a synthetic parent task (see `shared/routing.md`).
 - Only one writer owns a file path at a time.
@@ -188,11 +189,8 @@ a license by default; an unanswered license choice remains an explicitly reporte
 - Content publish fires the Truth (Rule-8) and Rights (Rule-6) gates; outreach send fires `live_outreach`.
 - **Incident:** operator approval before destructive actions, rollback, credential changes, public
   disclosure, broad cleanup, or live production mutation; preserve evidence first.
-- Mandatory multi-model review is governed by the four change-level triggers and the single
-  distinct-family reviewer defined in `shared/protocol.md` § Mandatory Review Behavior — the one home
-  for that gate and its cardinality, pinned in `scripts/python/registry_reconciler.py` and
-  `bin/send-task.sh`. A content/severity list (security, privacy, auth, release, …) or `safety_level`
-  never manufactures a change-level review.
+- Mandatory multi-model review follows `shared/protocol.md` § Mandatory Review Behavior,
+  the canonical home for the trigger gate, reviewer binding, and enforcement evidence.
 - **Machine-enforced close boundary:** the final Project close packet declares
   a JSON-compatible YAML `_state/runs/<run-id>/manifest.yaml` and every newly produced file that
   manifest references in `evidence_outputs`, all inside its `write_scope`; the operator-owned approval

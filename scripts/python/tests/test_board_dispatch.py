@@ -255,7 +255,7 @@ Dry-run dispatch test only.
         self.assertIn("start_new_session=True", text)
         self.assertIn('"event": "board-claimed"', text)
         self.assertIn("RESPONSE_MIN_AGE_SECONDS=0", text)
-        self.assertIn("settlement-error", text)
+        self.assertNotIn("settlement-error", text)
         self.assertIn("receipt_path", text)
         self.assertNotIn('supervisor_output="$(timeout', text)
         self.assertNotIn("nohup bash -c", text)
@@ -293,7 +293,7 @@ Dry-run dispatch test only.
             )
             # A high safety level is deliberately present: review is now a
             # property of this packet's explicit triggers, not this role row.
-            runtime_fields = ["sol", "shared", "judgment", "high"]
+            runtime_fields = ["exodia", "shared", "judgment", "high"]
             runtime_fields.extend(["x", "x", "claude", "x", "x", "x", "x", "x", "x", "gpt-codex"])
             (vault / "shared" / "specialist-runtime-map.tsv").write_text(
                 "\t".join(runtime_fields) + "\n", encoding="utf-8"
@@ -328,7 +328,7 @@ Dry-run dispatch test only.
                     str(IMPLEMENTATION_COMPAT_SEND_TASK),
                     "coding",
                     str(body),
-                    "sol",
+                    "exodia",
                     "claude",
                 ],
                 env={
@@ -357,7 +357,7 @@ Dry-run dispatch test only.
                     str(IMPLEMENTATION_COMPAT_SEND_TASK),
                     "coding",
                     str(body),
-                    "sol",
+                    "exodia",
                     "claude",
                     "--mode",
                     "project",
@@ -393,7 +393,7 @@ Dry-run dispatch test only.
                             str(IMPLEMENTATION_COMPAT_SEND_TASK),
                             "coding",
                             str(body),
-                            "sol",
+                            "exodia",
                             "claude",
                             "--mode",
                             "project",
@@ -425,7 +425,7 @@ Dry-run dispatch test only.
                     str(IMPLEMENTATION_COMPAT_SEND_TASK),
                     "coding",
                     str(body),
-                    "sol",
+                    "exodia",
                     "claude",
                     "--mode",
                     "project",
@@ -470,7 +470,7 @@ Dry-run dispatch test only.
                     str(IMPLEMENTATION_COMPAT_SEND_TASK),
                     "coding",
                     str(body),
-                    "sol",
+                    "exodia",
                     "claude",
                     "--mode",
                     "project",
@@ -505,7 +505,7 @@ Dry-run dispatch test only.
                     str(IMPLEMENTATION_COMPAT_SEND_TASK),
                     "coding",
                     str(body),
-                    "sol",
+                    "exodia",
                     "claude",
                     "--mode",
                     "project",
@@ -1131,7 +1131,6 @@ Dry-run dispatch test only.
             log = Path(f"{base}.log")
             receipt = Path(f"{base}.receipt.json")
             dispatch = Path(f"{base}.dispatch.json")
-            marker = root / "settlement-error"
             missing_context = Path(f"{base}.context.json")
             log.touch()
             environment = {
@@ -1146,7 +1145,6 @@ Dry-run dispatch test only.
                     str(missing_context),
                     str(log),
                     str(receipt),
-                    str(marker),
                     "/usr/bin/false",
                     str(root),
                     task,
@@ -1192,7 +1190,7 @@ Dry-run dispatch test only.
             self.assertIn(expected, log.read_text(encoding="utf-8"))
             self.assertGreater(receipt.stat().st_size, 0)
             self.assertGreater(log.stat().st_size, 0)
-            self.assertTrue(marker.is_file())
+            self.assertIn("blocked completion publication failed", log.read_text())
             payload = json.loads(receipt.read_text(encoding="utf-8"))
             self.assertEqual(payload["schema"], "board-dispatch-receipt/v2")
             self.assertEqual(payload["generation"], 1)

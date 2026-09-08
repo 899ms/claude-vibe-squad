@@ -8,18 +8,25 @@ different to prove names and extensions never classify rescued work.
 
 from __future__ import annotations
 
+from contextlib import redirect_stderr, redirect_stdout
+import io
 import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest import mock
 from datetime import datetime, timezone
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "scripts" / "python" / "reap_unbounded_state.py"
+sys.path.insert(0, str(SCRIPT.parent))
+import reap_unbounded_state as reaper  # noqa: E402
+
 SCRATCH_ROOT = Path(tempfile.gettempdir())
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
 OLD = datetime(2026, 7, 1, 12, 0, tzinfo=timezone.utc).timestamp()
@@ -77,16 +84,20 @@ class ReapUnboundedStateTests(unittest.TestCase):
         self._set_mtime(path, OLD)
         return path
 
-    def _run(self, *mode: str) -> subprocess.CompletedProcess[str]:
+    def _run(
+        self, *mode: str, include_snapshot_dir: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        snapshot_args = (
+            ["--vault-snapshot-dir", str(self.snapshots)] if include_snapshot_dir else []
+        )
         return subprocess.run(
             [
-                str(REPO_ROOT / ".venv" / "bin" / "python3.13"),
+                sys.executable,
                 str(SCRIPT),
                 *mode,
                 "--root",
                 str(self.root),
-                "--vault-snapshot-dir",
-                str(self.snapshots),
+                *snapshot_args,
                 "--receipt-dir",
                 str(self.receipt_dir),
                 "--now",
@@ -274,6 +285,54 @@ class ReapUnboundedStateTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 2)
         self.assertIn("not allowed with argument", result.stderr)
+
+    def test_missing_snapshot_configuration_fails_before_writing_a_receipt(self) -> None:
+        with (
+            mock.patch.dict(os.environ),
+            mock.patch.object(Path, "home", return_value=self.root / "unused-home"),
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(io.StringIO()) as stderr,
+        ):
+            os.environ.pop("VAULT_SNAPSHOT_DEST", None)
+            with self.assertRaises(SystemExit) as result:
+                reaper.main([
+                    "--root", str(self.root), "--receipt-dir", str(self.receipt_dir),
+                ])
+
+        self.assertEqual(result.exception.code, 2)
+        self.assertIn("--vault-snapshot-dir", stderr.getvalue())
+        self.assertFalse(self.receipt_dir.exists())
+
+    def test_empty_snapshot_environment_does_not_select_the_working_directory(self) -> None:
+        with mock.patch.dict(os.environ, {"VAULT_SNAPSHOT_DEST": ""}):
+            result = self._run("--apply", include_snapshot_dir=False)
+
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("--vault-snapshot-dir", result.stderr)
+        self.assertFalse(self.receipt_dir.exists())
+
+    def test_snapshot_environment_selects_real_archives(self) -> None:
+        paths = self._build_candidates()
+        with mock.patch.dict(os.environ, {"VAULT_SNAPSHOT_DEST": str(self.snapshots)}):
+            result = self._run(include_snapshot_dir=False)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.receipt_dir / "latest-preserve.json").read_text())
+        self.assertEqual(receipt["vault_snapshot_dir"], str(self.snapshots))
+        snapshots = [item for item in receipt["planned"] if item["category"] == "vault_snapshots"]
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0]["path"], str(paths["snapshot"].relative_to(self.root)))
+        self.assertTrue(paths["snapshot"].is_file(), "preserve removed a snapshot")
+
+    def test_explicit_snapshot_directory_overrides_environment(self) -> None:
+        other = self.root / "other-snapshots"
+        other.mkdir()
+        with mock.patch.dict(os.environ, {"VAULT_SNAPSHOT_DEST": str(other)}):
+            result = self._run()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.receipt_dir / "latest-preserve.json").read_text())
+        self.assertEqual(receipt["vault_snapshot_dir"], str(self.snapshots))
 
 
 if __name__ == "__main__":

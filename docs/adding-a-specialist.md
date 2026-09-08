@@ -18,10 +18,10 @@ my-specialist	security	security_reasoning	high	[privacy]	none	claude	claude.fabl
 
 Column rules (enforced by `bin/validate-specialists.sh`):
 - `source_namespace` ∈ `coding | security | content | sysmgmt | research | shared`
-- routing lanes use `codex | claude | gemini | kimi`; `primary_lane` may not be `kimi` unless the specialist has an explicit `primary_exception` row in `shared/lane-policy.tsv` (currently two: `summarizer`, `kestrel`)
+- routing lanes use `codex | claude | gemini | kimi | grok`; `primary_lane` may not be `kimi` unless the specialist has an explicit `primary_exception` row in `shared/lane-policy.tsv` (currently two: `summarizer`, `kestrel`)
 - `primary_lane` and `backup_lane` must differ, and every lane/profile pair must resolve through `shared/registries/profiles.tsv`
 - `safety_level` ∈ `low | medium | high`
-- `high`/`heightened_risk` rows require an independent review, `escalation.safety_floor.v1`, and `throughput.never.v1`
+- `high`/`heightened_risk` rows require an independent `review_lane`, `escalation.safety_floor.v1`, and `throughput.never.v1`
 - policy fields must resolve through `shared/registries/policies.tsv`; `tool_profile` must be one of the `vocabulary	tool_profile` values in `shared/lane-policy.tsv` (currently `none`, `media.elevenlabs`, `media.elevenlabs-agent`, `media.higgsfield`)
 - `operator_gate`, `requires_approval`, tools, tags, and safety tags use bracketed list syntax (`[]` when empty)
 - `notes` must be non-empty and `version` must be present
@@ -61,14 +61,14 @@ tags: []
 
 - `department` must equal the row's `source_namespace`. Runtime assignment comes from `primary_lane`; do not infer it from the brief's folder.
 - The brief carries **no** model or lane field. The effective model is resolved per specialist from the TSV row's `*_profile` keys through `shared/registries/profiles.tsv` (model + effort + flags), and the board spawns that CLI for the task. There is no `config/models.yaml`, and no launch-time per-lane model pin.
-- `required_tools` / `preferred_tools` are commonly left `[]`. Actual tool availability is declared in the brief body (below) and validated against `shared/api-catalog.md`; it is not enforced by a pre-flight.
+- `required_tools` / `preferred_tools` are commonly left `[]`. The canonical brief does **not** name specific tools, MCPs, or skills: capability is lane-specific, so it is declared in the generated per-lane adapter (from the capability source), not in the brief. Any MCP name a brief does cite is validated against `shared/api-catalog.md`, but availability is proven by a live runtime probe, never by a config file, and is not enforced by a pre-flight.
 - `blind_discovery: true` is optional and omitted by all but a handful of roles. Add it only when the role's job **is** rediscovery, so that prior findings would bias it: the dispatch blind floor (`shared/protocol.md` § The blindness floor) reads this key and forces `memory_aperture: cold` for the role whenever the packet's `target` has a `_blind/` dossier. Later-stage roles on the same target — `skeptic`, `impact-validator`, `technical-writer` — legitimately need prior art and must **not** carry it. The key is the roster: there is no list of blinded roles in code, so marking a brief is the whole change. `bin/validate-specialists.sh` rejects a misspelled key or a non-boolean value, because a brief that merely *looks* marked would leave the role reading freely.
 
 ### Required sections
 
 `bin/validate-specialists.sh` fails any brief missing these headings:
 
-- `## Tools available to me` — the MCPs / CLI features you use. Every cited MCP must be a `verified: yes` entry in `shared/api-catalog.md`; the validator rejects unverified names.
+- `## Tools available to me` — carry the canonical lane-agnostic pointer here, as the shipped briefs do: capability is lane-specific and declared in the per-lane adapter, so the brief itself names no specific tool, MCP, or skill. The validator still rejects any MCP name you *do* cite that is not a `verified: yes` entry in `shared/api-catalog.md`.
 - `## When to fan out` — peer specialists you dispatch to (each name must resolve to a real specialist file).
 - `## When to escalate`
 - `## What I do NOT do`
@@ -84,6 +84,7 @@ Every runtime-map specialist needs a thin adapter for each CLI it can be routed 
 | claude | `model-lanes/claude/.claude/agents/<specialist>.md` |
 | gpt-codex | `model-lanes/gpt-codex/.codex/agents/<specialist>.toml` (contains `name = "<specialist_with_underscores>"`) |
 | gemini | `model-lanes/gemini/.gemini/agents/<specialist>.md` (YAML frontmatter with `name: <specialist>`) |
+| grok | `model-lanes/grok/.grok/agents/<specialist>.yaml` (+ an entry in `model-lanes/grok/main.yaml`) |
 | kimi | `model-lanes/kimi/.kimi/agents/<specialist>.yaml` (+ an entry in `model-lanes/kimi/main.yaml`) |
 
 Ranked routes need adapters too, not only the primary route. Generate/check the primary, backup, escalation, review, and throughput lanes from the canonical brief and runtime-map row:
@@ -93,7 +94,7 @@ python3 model-lanes/generate-specialist-adapters.py --write <specialist>
 python3 model-lanes/generate-specialist-adapters.py <specialist>
 ```
 
-The first command creates missing adapters and never replaces reviewed adapters. Canonical brief updates take effect through the adapter pointer, so ordinary updates do not require rewriting its lane wrappers. Kimi adapters must also remain registered under `agent.subagents` in `model-lanes/kimi/main.yaml`; the check fails if that registry entry is absent. The runtime map remains the routing source of truth, so this procedure does not make a lane legitimate merely by creating a file.
+The first command creates missing adapters and never replaces reviewed adapters. Canonical brief updates take effect through the adapter pointer, so ordinary updates do not require rewriting its lane wrappers. Grok and Kimi adapters must also remain registered under `agent.subagents` in their respective `model-lanes/<lane>/main.yaml`; the check fails if that registry entry is absent. The runtime map remains the routing source of truth, so this procedure does not make a lane legitimate merely by creating a file.
 
 ## 4. Validate
 
@@ -105,39 +106,37 @@ bash bin/validate-specialists.sh
 
 The first command atomically regenerates the readable roster from the TSV; the second is the drift gate and fails with a unified diff if they disagree. Specialist validation then emits one JSON line per file and a `Total / Passed / Failed` summary on stderr, exiting non-zero on any failure. It checks: runtime-map row shape + valid enums, a specialist file exists for each row, the brief has the required sections and no fill placeholders, cited MCPs are `verified: yes` in the api-catalog, cited skills exist, peer/fan-out references resolve, and the adapter is registered for each routed CLI. It then runs the capability-home gate (`scripts/python/validate_capability_homes.py`), which checks the generated adapters against their `capability_source_sha256` provenance stamps.
 
-In a public clone the two stages degrade differently, and the difference decides
-how to read the exit code:
+In a public clone the gate does not fail for missing private inputs — it runs a
+reduced check set and **passes**:
 
 - Checks that resolve against `shared/registries/skill-tool-registry.tsv` are
   **skipped, with non-fatal `registry-not-published` warnings**. The private
   registry is deliberately withheld from the public tree, so its absence is the
   export policy working rather than a defect.
-- The capability-home gate also reads each specialist's **pre-strip brief from
-  the pinned baseline commit** (`baseline_ref` in
-  `model-lanes/adapter-capability-policy.json`). That commit is private history
-  and is not an ancestor of the public tip, so a public clone does not have the
-  object. The gate **exits 2 with a `configuration` error naming the commit**
-  instead of reporting a pass it cannot justify: `base-boundary` and
-  `migration-parity` exist to prove no pre-strip capability was lost, and with
-  no history to compare against there is nothing to prove it from. Treating an
-  unreadable baseline as an empty one would make both checks succeed by
-  construction.
+- The baseline-backed `boundary` and `parity` checks read a pinned pre-strip
+  commit that is private history and absent from a public clone. The wrapper
+  **selects them out** in that tree rather than failing on them, so
+  `require_baseline_commit` never runs and the missing commit never surfaces.
 
-So the exit code has three states, not two: `0` clean, `1` real diagnostics, `2`
-the gate could not run and says which input is missing. Only `1` means the tree
-is wrong.
+So in a public clone `bin/validate-specialists.sh` runs the
+`index,source,required,existence` subset and **exits 0**. The capability-home
+gate does have three exit states — `0` clean, `1` real diagnostics, `2` it could
+not run — but `2` arises in exactly one shape: the private registry **present**
+while the baseline is **absent**, which on the maintainer tree signals real
+corruption, not a public clone. `docs/production-readiness.md` is the one home
+for this behaviour and its measured exit codes; read it rather than restating the
+mechanics here.
 
-The capability checks that do not read history still run in a public clone:
+The public subset can be run directly:
 
 ```bash
-python3 scripts/python/validate_capability_homes.py --only existence,source,required,index
+python3 scripts/python/validate_capability_homes.py --only index,source,required,existence
 ```
 
 That subset covers adapter/source sync, routed-lane coverage, primary-lane
-requirements, and the generated index. It does **not** cover migration parity —
-no public checkout can. The baseline-backed checks and the full registry
-cross-checks run on the maintainer checkout, which is also what
-`.github/workflows/public-validate.yml` says and why it does not run this gate.
+requirements, and the generated index; it does **not** cover baseline migration
+parity, which no public checkout can. The baseline-backed and full registry
+cross-checks run only on the maintainer checkout.
 
 Read the current roster and adapter counts from the validator output; do not copy those mutable totals into
 this guide.
@@ -150,11 +149,11 @@ Send a real packet through the shipped dispatch path (no daemon, no `curl`):
 scripts/send-task.sh <source-namespace> <body-file> my-specialist --mode <operator-approved-mode>
 ```
 
-`scripts/send-task.sh` requires the operator-approved `project|bounty` mode, reads your row from the TSV, maps `primary_lane`/`review_lane` to task-packet model names, generates task frontmatter (`safety_level: high` → `mandatory_review: true`, namespace), and hands off to `bin/send-task.sh`. It rejects an omitted mode instead of supplying one. The hardened dispatcher writes the packet to `departments/<namespace>/inbox/TASK-*.md`, pins a verification contract to it, and hands delivery to a detached `bin/board-supervisor.sh`, which creates a git worktree and spawns a fresh CLI for your specialist. The response lands at `departments/<namespace>/outbox/TASK-*-response.md` and `bin/registry-reconciler.sh` settles it.
+`scripts/send-task.sh` requires the operator-approved `project|bounty` mode, reads your row from the TSV, maps `primary_lane`/`review_lane` to task-packet model names, generates the task frontmatter (namespace, `review_triggers`, and the `mandatory_review` boolean derived from them), and hands off to `bin/send-task.sh`. It rejects an omitted mode instead of supplying one. The wrapper reads the trigger list from the `REVIEW_TRIGGERS` environment variable, defaulting to `[]` → `mandatory_review: false`; `safety_level` does **not** manufacture a review. To request one, pass a non-empty list, e.g. `REVIEW_TRIGGERS='[blast_radius]' scripts/send-task.sh <source-namespace> <body-file> my-specialist --mode <mode>`. The trigger vocabulary and the single distinct-family review rule live in `shared/protocol.md` § Mandatory Review Behavior. The hardened dispatcher writes the packet to `departments/coding/inbox/TASK-*.md`, pins a verification contract to it, and hands delivery to a detached `bin/board-supervisor.sh`, which creates a git worktree and spawns a fresh CLI for your specialist. The response lands at `departments/coding/outbox/TASK-*-response.md` and `bin/registry-reconciler.sh` settles it. Transport is always the canonical `departments/coding` mailbox regardless of `source_namespace` (`shared/protocol.md` § board-native transport).
 
 ## Safety & review
 
-- `safety_level: high` rows must carry an independent `review_lane`; `bin/send-task.sh` enforces the `mandatory_review` contract at dispatch (see `shared/protocol.md` § Mandatory Review Behavior).
+- A `safety_level: high` (or `heightened_risk`) row must declare an independent `review_lane` — the reviewer Chrono uses when a packet routed to this specialist sets `mandatory_review: true`. Safety level chooses the specialist's quality floor and throughput policy; it does not by itself make a change request review. Whether a given packet is reviewed is derived from that packet's `review_triggers` list, and `bin/send-task.sh` validates the list ↔ `mandatory_review` agreement at dispatch (see `shared/protocol.md` § Mandatory Review Behavior).
 - Review is a contract, not automation: same-family reviews run inside the specialist's own attempt before it declares done; cross-family reviews are dispatched by Chrono as a separate attempt after the response lands. Reviewers are read-only unless Chrono serializes a later write packet.
 
 ## See also

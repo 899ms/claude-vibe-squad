@@ -399,9 +399,10 @@ else:
     if entry is None:
         emit("round_trip", "NOT_MEASURED", f"{task_id} is not in the registry")
     else:
-        ns = str(entry.get("source_namespace") or "coding")
-        envelope = root / "departments" / ns / "outbox" / f"{task_id}-response.md"
-        archived = root / "departments" / ns / "archive" / f"{task_id}.md"
+        # Source namespace locates the role; board transport always uses coding.
+        mailbox = root / "departments" / "coding"
+        envelope = mailbox / "outbox" / f"{task_id}-response.md"
+        archived = mailbox / "archive" / f"{task_id}.md"
         have_envelope = envelope.is_file() or archived.is_file()
 
         promoted, declared = artifact_present(entry)
@@ -855,7 +856,7 @@ JSON_EOF
     cat > "${good}/_state/active-tasks.json" <<'JSON_EOF'
 {
   "TASK-2099-01-01-0003-good": {
-    "source_namespace": "coding",
+    "source_namespace": "security",
     "status": "complete",
     "dispatched_at": "2099-01-01T00:00:00+00:00",
     "delivery_lane": "claude",

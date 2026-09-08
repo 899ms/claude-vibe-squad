@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Vibe Squad topology helpers.
 #
-# Source namespaces choose mailbox/storage. Model lanes choose the visible
+# Source namespaces choose the specialist's role markdown. Model lanes choose the visible
 # tmux window and runtime. Do not infer one from the other unless a legacy
 # caller has no task packet to inspect.
 

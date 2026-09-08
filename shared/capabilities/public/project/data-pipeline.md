@@ -24,12 +24,12 @@ A zero-key checkout gets this protocol and its validation metadata as documentat
 | Step | Specialists | Tools `` | Skills `(type)` | Gate / Overlay |
 |---|---|---|---|---|
 | **S0** Intake/Admit | `Chrono`, `triage` | `chrono-vault` | — | memory overlay (recall) |
-| **S1** Frame (data contract) | `product-manager`, `data-extraction-engineer` | — | `requirements-elicitation`, `schema-inference` | privacy overlay if PII |
+| **S1** Frame (data contract) | `product-manager`, `data-extraction-engineer` | — | `requirements-elicitation` | privacy overlay if PII |
 | **S2** Design (pipeline architecture) | `architect`, `backend-engineer`, `database-engineer` | `context7` | `dependency-cycle-audit` | — |
-| **S3** Produce (build ETL / wiring) | `data-extraction-engineer`, `ai-engineer`, `backend-engineer` | `context7` | `data-cleaning-pipeline`, `structured-data-authoring` | — |
-| **S4** Verify | `test-engineer`, `performance-optimizer` | — | `eval-harness-pattern`, `representative-workload-design` | — |
+| **S3** Produce (build ETL / wiring) | `data-extraction-engineer`, `ai-engineer`, `backend-engineer` | `context7` | `structured-data-authoring` | — |
+| **S4** Verify | `test-engineer`, `performance-optimizer` | — | — | — |
 | **S5** Review/Gate | `code-reviewer`, `skeptic`, `cross-family-reviewer` | `codex review`, `claude --from-pr` | — | review overlay (review tools MECHANICS ONLY — never replace the independent cross-family reviewer); privacy if PII |
-| **S6** Ship/Deliver | `devops-engineer` | `plugin:github:github` | `rollback-test-coverage` | `production_mutation`, `credential_change`, `delete` (destructive overwrite / retention cutoff) |
+| **S6** Ship/Deliver | `devops-engineer` | `plugin:github:github` | — | `production_mutation`, `credential_change`, `delete` (destructive overwrite / retention cutoff) |
 | **S7** Capture | `Chrono`, `memory-curator` | `chrono-vault` | — | memory overlay (record) |
 
 **Notes.** ⚠ **No ML-training / data-science specialist exists** — this capability covers pipeline wiring +

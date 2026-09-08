@@ -46,14 +46,53 @@ class ThreadCharterParserTests(unittest.TestCase):
         charter = self.parse(charter_text(queued, "- [ ] settle the queue"))
         self.assertEqual([q.queue_id for q in charter.unresolved_queues], ["Q-001"])
 
-        resolved = (
-            queued
-            + "\n- 2026-08-18T12:01:00Z | DECLINE resolves Q-001 | keep mirrors "
-            "— why: no delete grant; resume: close the thread"
+        for kind in ("FOLD", "DROP", "DECLINE"):
+            with self.subTest(kind=kind):
+                resolution = (
+                    f"- 2026-08-18T12:01:00Z | {kind} resolves Q-001 | keep mirrors "
+                    "— why: no delete grant; resume: close the thread"
+                )
+                charter = self.parse(
+                    charter_text(queued + "\n" + resolution, "- [ ] settle the queue")
+                )
+                self.assertEqual(charter.unresolved_queues, ())
+                self.assertFalse(charter.issues)
+                self.assertEqual(len(charter.open_loops), 2)
+                self.assertEqual(charter.open_loops[0].raw, queued)
+                self.assertEqual(charter.open_loops[1].classification, kind)
+                self.assertEqual(charter.open_loops[1].resolves, "Q-001")
+                self.assertEqual(charter.open_loops[1].raw, resolution)
+
+    def test_terminal_classifications_preserve_the_recorded_spelling(self):
+        for kind in ("FOLD", "DROP", "DECLINE"):
+            with self.subTest(kind=kind):
+                line = (
+                    f"- 2026-08-18T12:00:00Z | {kind} | keep mirrors "
+                    "— why: no delete grant; resume: close the thread"
+                )
+                charter = self.parse(charter_text(line, "- [x] done"))
+                self.assertFalse(charter.issues)
+                self.assertEqual(
+                    charter.open_loops, (thread_charters.OpenLoop(line, kind),)
+                )
+                self.assertEqual(charter.unresolved_queues, ())
+
+    def test_unknown_classification_is_reported_and_not_parsed(self):
+        charter = self.parse(charter_text(
+            "- 2026-08-18T12:00:00Z | DROPPED | keep mirrors "
+            "— why: no delete grant; resume: close the thread",
+            "- [x] done",
+        ))
+        self.assertEqual(charter.open_loops, ())
+        self.assertEqual(
+            charter.issues, ("OPEN LOOPS has invalid classification: DROPPED",)
         )
-        charter = self.parse(charter_text(resolved, "- [ ] settle the queue"))
-        self.assertEqual(charter.unresolved_queues, ())
-        self.assertFalse(charter.issues)
+
+    def test_malformed_entry_guidance_uses_drop(self):
+        charter = self.parse(charter_text("- malformed", "- [x] done"))
+        self.assertEqual(len(charter.issues), 1)
+        self.assertIn("FOLD|QUEUE Q-id|DROP [resolves Q-id]", charter.issues[0])
+        self.assertNotIn("DECLINE", charter.issues[0])
 
     def test_done_when_met_requires_every_item_checked(self):
         done = self.parse(charter_text("- (none)", "- [x] first\n- [X] second"))
@@ -112,7 +151,6 @@ class ThreadCharterCapsuleTests(unittest.TestCase):
                 "continue",
                 EMPTY_VIEW,
                 max_tokens=max_tokens,
-                unreconciled=0,
             )
 
     def test_present_charter_projects_ask_done_when_and_unresolved_queue(self):

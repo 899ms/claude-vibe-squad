@@ -5,7 +5,7 @@ Vibe Squad is intentionally small and markdown-first. Contributions should make 
 ## Architecture Rules
 
 - Chrono is the only controller.
-- GPT/Codex, Claude, Gemini, and Kimi are model leads, not department owners.
+- GPT/Codex, Claude, Gemini, Kimi, and Grok are model leads, not department owners.
 - `shared/specialist-runtime-map.tsv` is the routing source of truth.
 - `departments/` is source namespace and mailbox compatibility storage only.
 - Modes, specialist briefs, model lead prompts, and protocol rules stay in markdown.
@@ -25,22 +25,25 @@ No patch should introduce silent live sends, silent deletes, credential changes,
 
 ## Development Checks
 
-**First, in every fresh clone, opt in to the tracked pre-commit hook:**
+**First, in every fresh clone, install the reviewed pre-commit guard outside the worktree:**
 
 ```bash
-git config core.hooksPath .githooks
+bash docs/install/install-pre-commit-hook.sh
 ```
 
-Git runs hooks only from `.git/hooks/`, which a clone never receives, so `.githooks/pre-commit` does
-nothing until you point git at it. It is per-clone local config, never set for you and never
-committed. With it enabled, each commit runs the private-memory leak guard first (blocking), then
-the specialist, format, capability, and moat checks. Without it, none of those run until CI sees
-your push. Undo with `git config --unset core.hooksPath`; details in [docs/git-hooks.md](docs/git-hooks.md).
+The installer copies the self-contained private-memory leak guard into Git's private
+`.git/hooks/` directory. Never point `core.hooksPath` at `.githooks` or symlink a hook back into
+the worktree: a checked-out branch could then replace code that runs as you on the next commit.
+The local guard blocks private-memory leaks; the broader specialist, format, capability, and moat
+checks run in CI. Re-run the installer after pulling an intentional guard update. Details and
+verification commands are in [docs/git-hooks.md](docs/git-hooks.md).
 
 Run the relevant checks before opening a PR. These work in any clone, including the public one:
 
 ```bash
-bash -n bin/*.sh scripts/*.sh shared/*.sh
+for script in $(git ls-files '*.sh'); do
+  bash -n "$script" || exit 1
+done
 python3 -m py_compile scripts/python/*.py bin/*.py
 bash bin/validate-specialists.sh
 bash bin/doctor.sh
@@ -64,4 +67,5 @@ For dispatch changes, smoke test at least one cross-namespace route where `sourc
 - Python: keep scripts under `scripts/python/`; use type hints where they clarify behavior.
 - Markdown: YAML frontmatter for specialists, modes, and profiles; concise instructions; no stale release-plan prose in canonical prompts.
 
-By contributing, you agree your contribution is licensed under AGPL-3.0.
+By contributing original material, you agree to license it under the repository's MIT License,
+except where an accompanying file-specific license requires otherwise; see THIRD_PARTY.md.

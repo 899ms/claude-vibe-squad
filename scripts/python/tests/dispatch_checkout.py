@@ -27,12 +27,15 @@ Use it as::
 from __future__ import annotations
 
 import atexit
+import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 _CACHE: dict[Path, Path] = {}
 _TMPDIRS: list[tempfile.TemporaryDirectory] = []
+_PENDING_DIAGNOSTICS: dict[Path, str] = {}
 
 
 def _is_linked_worktree(root: Path) -> bool:
@@ -45,7 +48,7 @@ def _is_linked_worktree(root: Path) -> bool:
     def _rev_parse(flag: str) -> str:
         return subprocess.run(
             ["git", "-C", str(root), "rev-parse", flag],
-            capture_output=True, text=True, check=False,
+            capture_output=True, text=True, check=False, timeout=10,
         ).stdout.strip()
 
     git_dir = _rev_parse("--git-dir")
@@ -53,6 +56,90 @@ def _is_linked_worktree(root: Path) -> bool:
     # An empty result means "not a git repo at all" -- not a worktree, so leave
     # the caller's root alone rather than silently substituting a copy.
     return bool(git_dir) and bool(common_dir) and git_dir != common_dir
+
+
+def _checkout_diagnostic(message: str) -> bool:
+    """Bypass Python captures, with an fd fallback if the original stream fails."""
+    try:
+        if sys.__stderr__ is None:
+            raise ValueError("original stderr is unavailable")
+        print(message, file=sys.__stderr__, flush=True)
+        return True
+    except Exception as exc:
+        # Diagnostics must not raise into collection, even with a broken stream.
+        fallback = (
+            f"!! Checkout diagnostic stderr failed ({type(exc).__name__}); using fd 2.\n"
+            f"{message}\n"
+        )
+    try:
+        pending = fallback.encode("ascii", errors="backslashreplace")
+        while pending:
+            written = os.write(2, pending)
+            if written <= 0:
+                return False
+            pending = pending[written:]
+        return True
+    except Exception:
+        # If fd 2 is also gone, no diagnostic can be delivered safely. Do not
+        # fall back to stdout or sys.stderr: tests may assert on those streams.
+        return False
+
+
+def _warn_ignored_changes(root: Path) -> None:
+    """Report HEAD substitution without affecting captured test output or results."""
+    operation = "git status"
+    try:
+        status = subprocess.run(
+            ["git", "-C", str(root), "status", "--porcelain=v1", "-z", "--untracked-files=no"],
+            capture_output=True, check=False, timeout=10,
+        )
+        if status.returncode:
+            raise ValueError(f"exit {status.returncode}")
+        operation = "parse git status"
+        paths: set[bytes] = set()
+        records = iter(status.stdout.split(b"\0")[:-1])
+        if status.stdout and not status.stdout.endswith(b"\0"):
+            raise ValueError("unterminated porcelain output")
+        for record in records:
+            if len(record) < 4 or record[2:3] != b" ":
+                raise ValueError("malformed porcelain record")
+            paths.add(record[3:])
+            # With -z, a rename/copy has destination then source as separate
+            # records; neither path is quoted, even with tabs or newlines.
+            if b"R" in record[:2] or b"C" in record[:2]:
+                source = next(records, b"")
+                if not source:
+                    raise ValueError("missing rename/copy source")
+                paths.add(source)
+        if not paths:
+            return
+        operation = "git rev-parse HEAD"
+        head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        if head.returncode:
+            raise ValueError(f"exit {head.returncode}")
+        revision = head.stdout.strip()
+        if len(revision) not in (40, 64) or any(c not in "0123456789abcdef" for c in revision):
+            raise ValueError("invalid HEAD object id")
+        message = (
+            f"!! TESTING COMMITTED HEAD {revision}.\n"
+            f"!! Ignoring changes to {len(paths)} tracked path(s) in {str(root)!r}.\n"
+            "!! Uncommitted changes are INVISIBLE to this suite; commit them to test them."
+        )
+    except Exception as exc:
+        message = (
+            f"!! Could not determine tracked-change status in {str(root)!r} "
+            f"({operation}: {type(exc).__name__}: {str(exc)!r}). "
+            "HEAD substitution still proceeds; this is NOT a clean-tree measurement."
+        )
+    if not _checkout_diagnostic(message):
+        # Retain the original measurement: a later status read could look clean
+        # even though this cached checkout still omitted the earlier edits.
+        _PENDING_DIAGNOSTICS[root] = message
+    else:
+        _PENDING_DIAGNOSTICS.pop(root, None)
 
 
 def normal_checkout_root(root: Path) -> Path:
@@ -64,6 +151,9 @@ def normal_checkout_root(root: Path) -> Path:
     """
     root = Path(root).resolve()
     if root in _CACHE:
+        pending = _PENDING_DIAGNOSTICS.get(root)
+        if pending is not None and _checkout_diagnostic(pending):
+            _PENDING_DIAGNOSTICS.pop(root, None)
         return _CACHE[root]
     if not _is_linked_worktree(root):
         _CACHE[root] = root
@@ -76,16 +166,17 @@ def normal_checkout_root(root: Path) -> Path:
     archive = Path(tmp.name) / "tree.tar"
     subprocess.run(
         ["git", "-C", str(root), "archive", "HEAD", "-o", str(archive)],
-        check=True, capture_output=True,
+        check=True, capture_output=True, timeout=10,
     )
-    subprocess.run(["tar", "-xf", str(archive), "-C", str(repo)], check=True)
+    subprocess.run(["tar", "-xf", str(archive), "-C", str(repo)], check=True, timeout=10)
     for cmd in (
         ["git", "init", "-q", "."],
         ["git", "add", "-A"],
         ["git", "-c", "user.email=tests@vibesquad.local", "-c", "user.name=tests",
          "commit", "-q", "-m", "test checkout"],
     ):
-        subprocess.run(cmd, cwd=str(repo), check=False, capture_output=True)
+        subprocess.run(cmd, cwd=str(repo), check=False, capture_output=True, timeout=10)
+    _warn_ignored_changes(root)
     _CACHE[root] = repo
     return repo
 

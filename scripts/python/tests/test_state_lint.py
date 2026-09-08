@@ -10,19 +10,27 @@ scripts/python/state_lint.py for the full rationale.
 
 The synthetic-snippet tests below pin the two rules' true/false-positive
 boundary. Plan B task 6 (2026-08-17) fixed all five live sites -- `python3
-scripts/python/state_lint.py` now reports zero -- so the tests that used to
+scripts/python/state_lint.py` reported zero then -- so the tests that used to
 assert the checker still fires on the actual daemon/main.py and
 daemon/watcher.py are now synthetic-snippet regression pins too (see
 HistoricalDefectShapesStillFlagTests below), reconstructing the exact shape
 those files shipped with rather than depending on files that were correctly
 fixed out from under them.
+
+RepositoryScanTests also invokes the real CLI over this checkout's tracked
+Python files. Existing or newly introduced violations fail that test; the
+snippet controls cannot stand in for a repository scan.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import subprocess
 import sys
+import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -35,6 +43,41 @@ import state_lint  # noqa: E402
 
 def _rules(source: str) -> list[str]:
     return [v.rule for v in state_lint.find_violations(source)]
+
+
+class RepositoryScanTests(unittest.TestCase):
+    """The existing test runner must scan tracked sources, not just snippets."""
+
+    def test_repository_scan(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "-B", str(PYTHON_DIR / "state_lint.py")],
+            cwd=ROOT,
+            env={**os.environ, "VAULT_ROOT": str(ROOT)},
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class RepositoryScanControlTests(unittest.TestCase):
+    def test_repository_scan_rejects_a_tracked_defect_then_passes_after_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "background.py"
+            broken = "import asyncio\n\ndef run():\n    task = asyncio.create_task(work())\n"
+            source.write_text(broken, encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+            subprocess.run(["git", "-C", str(root), "add", "background.py"], check=True, capture_output=True)
+            # Only the repository input changes; invoke the same assertion used
+            # by automation, without mocking the scanner, Git census, or exit.
+            with mock.patch.object(sys.modules[__name__], "ROOT", root):
+                case = RepositoryScanTests("test_repository_scan")
+                with self.assertRaisesRegex(AssertionError, "dangling-create-task"):
+                    case.test_repository_scan()
+                source.write_text(broken + "    task.add_done_callback(report)\n", encoding="utf-8")
+                case.test_repository_scan()
 
 
 class DanglingCreateTaskTests(unittest.TestCase):
