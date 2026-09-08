@@ -66,6 +66,8 @@ class Fix1TaskIdTraversal(unittest.TestCase):
             path = fh.name
         try:
             return subprocess.run([str(SEND_TASK), path, "--dry-run"],
+                                  # Reach the ID guard even in detached/non-repo CI fixtures.
+                                  env={**os.environ, "SQUAD_BASE_BRANCH": "v2"},
                                   capture_output=True, text=True, timeout=60)
         finally:
             os.unlink(path)
@@ -562,6 +564,8 @@ class Med5NulTaskId(unittest.TestCase):
             path = fh.name
         try:
             r = subprocess.run([str(SEND_TASK), path, "--dry-run"],
+                               # Reach raw-byte validation before any branch-dependent work.
+                               env={**os.environ, "SQUAD_BASE_BRANCH": "v2"},
                                capture_output=True, text=True, timeout=60)
             out = (r.stdout + r.stderr).lower()
             self.assertNotEqual(r.returncode, 0, msg=out)

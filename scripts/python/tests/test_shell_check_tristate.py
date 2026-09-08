@@ -415,7 +415,10 @@ class WriteScopeGuardTriStateTest(unittest.TestCase):
     def run_verify(self, repro: Path):
         return run_bash(
             self.verifier,
-            env={"WSGUARD_REPRO_UNDER_TEST": str(repro)},
+            # C1/C3 must reach the write-scope guard before C4's tri-state
+            # result is meaningful, including in a detached CI checkout.
+            env={"WSGUARD_REPRO_UNDER_TEST": str(repro),
+                 "SQUAD_BASE_BRANCH": "v2"},
         )
 
     def test_completed_silent_twin_passes(self):

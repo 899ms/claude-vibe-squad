@@ -234,13 +234,15 @@ class TriggerReviewGateTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        env = {**os.environ, "VAULT_ROOT": str(vault or REPO), "SKIP_NUDGE": "1"}
-        if vault is not None:
-            # A fixture vault is a plain tempdir, not a git checkout, so
-            # send-task.sh cannot derive a branch and now refuses to guess
-            # one; supply it explicitly. `REPO` (the `or` fallback above) is
-            # the real checkout and derives its actual branch unaided.
-            env["SQUAD_BASE_BRANCH"] = "v2"
+        # Keep the fixture's v2 convention for both the plain tempdir and the
+        # real checkout (which CI detaches). Dry-run review admission never
+        # provisions or integrates this branch; its derivation is not the subject.
+        env = {
+            **os.environ,
+            "VAULT_ROOT": str(vault or REPO),
+            "SKIP_NUDGE": "1",
+            "SQUAD_BASE_BRANCH": "v2",
+        }
         completed = subprocess.run(
             [str(SEND_TASK), str(task_file), "--dry-run"],
             env=env,

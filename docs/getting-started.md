@@ -16,7 +16,7 @@ You need:
 - the `claude`, `codex`, `agy`, `grok`, and `kimi` CLIs
 
 ```bash
-brew install jq tmux fswatch
+brew install jq tmux fswatch uv
 ```
 
 All five provider CLIs are required — `bin/squad up` exits 1 if any is missing.
@@ -34,8 +34,13 @@ vendors:
 - `agy` is Antigravity's CLI, distributed by Google as a standalone binary
   (Antigravity: <https://antigravity.google>). There is no Homebrew, npm, or `uv`
   package — download the binary and put it on your `PATH`.
-- `grok` is xAI's Grok CLI. There is no confirmed one-line public package
-  command; obtain it from xAI and put it on your `PATH`.
+- `grok` is xAI's Grok CLI. There is no Homebrew, npm, or `uv` package and no
+  confirmed one-line public install command — obtain the binary from xAI's
+  official distribution and put it on your `PATH`. A working install links `grok`
+  from under `~/.grok`, so that directory (or wherever you place the binary) must
+  be on your `PATH`. This repository carries no verified download URL for it; the
+  per-CLI acquisition and auth detail is in
+  [Provider CLIs](install/provider-clis.md).
 
 Both are mandatory: because `bin/squad up` refuses to launch until all five CLIs
 resolve, there is no partial-lane path past the dependency gate. Per-CLI
@@ -128,6 +133,16 @@ repository never vendors. Without it those three servers are unavailable and say
 so. See [Guarded security MCPs](install/security-mcps.md).
 
 ## 5. Check and launch
+
+Install the private-memory leak guard first. `bin/squad doctor` checks for it,
+and `bin/squad up` will not launch on a failed `doctor`, so this step comes
+before the check:
+
+```bash
+bash docs/install/install-pre-commit-hook.sh
+```
+
+Then check and launch:
 
 ```bash
 bin/squad doctor

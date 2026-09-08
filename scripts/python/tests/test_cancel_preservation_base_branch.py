@@ -25,6 +25,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -246,8 +247,12 @@ class CancelPreservationBaseBranchTests(unittest.TestCase):
         self._worker_commits_work()
         _git(["checkout", "-q", "--detach"], cwd=self.vault)
 
-        with self.assertRaises(wti.WorktreeIsolationError) as raised:
-            wti.preserve_terminal_evidence(self.authority)
+        with mock.patch.dict(os.environ):
+            # Unset so the derivation under test is what supplies the value,
+            # matching the subprocess half in _run_cancel.
+            os.environ.pop("SQUAD_BASE_BRANCH", None)
+            with self.assertRaises(wti.WorktreeIsolationError) as raised:
+                wti.preserve_terminal_evidence(self.authority)
         self.assertIn("refusing to guess", str(raised.exception))
 
         completed, receipt = self._run_cancel()

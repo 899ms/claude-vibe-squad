@@ -445,6 +445,9 @@ class StructuralWriteScopeRefusalTest(unittest.TestCase):
                 text=True,
                 check=False,
                 cwd=str(self._root),
+                # Structural-scope refusal precedes provisioning. The real
+                # checkout may be detached in CI, so explicitly name main.
+                env={**os.environ, "SQUAD_BASE_BRANCH": "main"},
             )
 
     def test_structural_path_is_refused_before_dispatch(self):

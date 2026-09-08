@@ -312,6 +312,7 @@ remote_ref_status=0
 remote_ref_state="not-applicable"
 if [[ "$PUBLIC_EXPORT" -eq 1 ]]; then
     remote_ref_report="${TMP_DIR}/remote-ref-audit.txt"
+    remote_ref_ledger="${export_tool_root}/_state/public-export-2026-07-21/export-ledger.jsonl"
     if git -C "$VAULT_ROOT" remote get-url public >/dev/null 2>&1; then
         # Operator-accepted residual (2026-07-28, remediation choice C): the
         # retained refs/pull/1/head pre-clean-slate lineage is LOW severity
@@ -321,6 +322,7 @@ if [[ "$PUBLIC_EXPORT" -eq 1 ]]; then
         # classified normally and fails closed.
         python3 "${export_tool_root}/tools/export/remote_ref_audit.py" \
             --remote public --clean-ref refs/remotes/public/main --repo "$VAULT_ROOT" \
+            --ledger "$remote_ref_ledger" \
             --accept-ref 'refs/pull/1/head=64aa37ff47cf4f1c8b2eb259f42eadbee61e9324' \
             > "$remote_ref_report" 2>&1
         remote_ref_status=$?
@@ -458,6 +460,7 @@ fi
         if [[ -s "$content_error" ]]; then sed 's/^/- error: /' "$content_error"; fi
         echo ""
         echo "## Remote-advertised-ref audit"
+        echo "- Ledger precondition: ${remote_ref_ledger}"
         case "$remote_ref_state" in
             ran-pass|ran-fail) echo "- Ran: yes" ;;
             *) echo "- Ran: NO (${remote_ref_state}) — the exit status below was not earned by an audit" ;;

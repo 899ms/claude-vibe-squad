@@ -5,16 +5,17 @@ retained, disjoint ref. GitHub keeps ``refs/pull/N/head`` across a force-push /
 clean-slate, so an export projector that only pushes ``main`` can leave the old
 lineage publicly fetchable. This audit enumerates every advertised ref and flags
 any whose commit is neither reachable from the clean baseline ref nor a new
-contribution based exactly on that baseline.
+contribution based on published clean history.
 
 The direction of the history check matters. A ref that is an ancestor of the
-baseline is already published history (``clean-ancestor``), while a ref whose
-merge-base is the baseline is new work built on the clean slate only when every
-root reachable from the ref is also reachable from the baseline
-(``contribution``). A ref that diverges before the baseline, has no merge-base,
-or reaches an additional root still carries lineage outside the clean slate and
-is a ``LEAK``. Fork ownership is deliberately irrelevant: a stale fork can
-reintroduce retained history just as readily as a same-repository ref.
+baseline is already published history (``clean-ancestor``). New work is a
+``contribution`` when it has a merge-base with the baseline and every root
+reachable from the ref is also reachable from the baseline. The root-set check
+is the whole retained-lineage guard: a merge-base is a common ancestor by
+definition, so rechecking whether it is an ancestor of the baseline would add
+no condition. A ref with no merge-base or an additional root is a ``LEAK``.
+Fork ownership is deliberately irrelevant: a stale fork can reintroduce
+retained history just as readily as a same-repository ref.
 
 The root-set check is complete for this repository's retained-history threat
 because its clean slate was an orphan rewrite, which minted a new root: reaching
@@ -22,6 +23,15 @@ any pre-clean-slate commit necessarily reaches the old root. If a future rewrite
 uses ``filter-repo`` or ``filter-branch`` while preserving the root, root-set
 equality will no longer prove that old history is absent and this detector must
 be replaced or strengthened before that rewrite is certified.
+
+That sufficiency also requires published history to be append-only. A populated,
+readable export ledger is therefore a required precondition: the audit refuses
+with exit 2 when it is absent, empty, dangling, unreadable, or has no valid
+public tip, and also unless that tip is an ancestor of the current baseline.
+This prevents a root-preserving rewrite from purging content from the baseline
+while a same-root fork still carries it. The precondition is enforced for
+publication by ``bin/product-hygiene.sh``, which passes the private checkout's
+ledger explicitly; this standalone audit does not authorize a first publication.
 
 This root-set check bounds lineage, not content. Replaying old commits onto the
 new root mints a new lineage and therefore classifies as ``contribution`` by
@@ -44,11 +54,17 @@ Standalone module (``tools/export`` is not a package): run as
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+
+
+# `projector.DEFAULT_LEDGER_PATH` is authoritative. This standalone module keeps
+# the literal locally; the export tests pin the two values together.
+DEFAULT_LEDGER_PATH = Path("_state/public-export-2026-07-21/export-ledger.jsonl")
 
 
 class RemoteRefAuditError(RuntimeError):
@@ -85,19 +101,58 @@ def _result_detail(result: subprocess.CompletedProcess[str]) -> str:
     return (result.stderr or result.stdout or "no diagnostic output").strip()
 
 
+def _previous_public_tip(repo: Path, ledger_path: str | Path) -> str | None:
+    ledger = Path(ledger_path)
+    if not ledger.is_absolute():
+        ledger = repo / ledger
+    if ledger.is_symlink() and not ledger.exists():
+        raise RemoteRefAuditError(f"export ledger {ledger} is a dangling symlink")
+    if not ledger.exists():
+        raise RemoteRefAuditError(f"export ledger {ledger} is absent")
+    try:
+        lines = [
+            line
+            for line in ledger.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        if not lines:
+            raise RemoteRefAuditError(f"export ledger {ledger} is empty")
+        for line in reversed(lines):
+            entry = json.loads(line)
+            if not isinstance(entry, dict):
+                continue
+            tip = entry.get("public_tip") or entry.get("published_tip")
+            if tip is None:
+                continue
+            if not isinstance(tip, str) or not re.fullmatch(
+                r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}", tip
+            ):
+                raise RemoteRefAuditError(
+                    f"export ledger {ledger} has an invalid public tip"
+                )
+            return tip.lower()
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise RemoteRefAuditError(
+            f"cannot read export ledger {ledger}: {error}"
+        ) from error
+    raise RemoteRefAuditError(f"export ledger {ledger} has no recorded public tip")
+
+
 def audit_refs(
     repo_dir,
     remote: str,
     clean_ref: str,
     accepted_refs: Mapping[str, str] | None = None,
+    *,
+    ledger_path: str | Path = DEFAULT_LEDGER_PATH,
 ) -> list[dict]:
     """Return one record per advertised ref on ``remote``.
 
     Each record includes ``{"ref", "sha", "status"}`` where status is one of
     ``clean-equal`` (== baseline), ``clean-ancestor`` (reachable from baseline),
-    ``contribution`` (the baseline plus same-root new commits),
+    ``contribution`` (same-root new commits with a merge-base),
     ``accepted-risk`` (a SHA-pinned, classified exposure), ``LEAK`` (disjoint,
-    diverged before the baseline, or carrying an extra root), or ``UNKNOWN``
+    or carrying an extra root), or ``UNKNOWN``
     (the advertised object could not be fetched or evaluated). ``accepted-risk``
     records include the underlying ``classification``; ``UNKNOWN`` records
     include a diagnostic ``detail``. A SHA-matching acceptance on any status
@@ -118,6 +173,22 @@ def audit_refs(
         )
     _git(repo, "fetch", "--quiet", remote)
     clean_sha = _git(repo, "rev-parse", clean_ref).strip()
+    public_tip = _previous_public_tip(repo, ledger_path)
+    if public_tip is not None:
+        append_only = _git_result(
+            repo, "merge-base", "--is-ancestor", public_tip, clean_sha
+        )
+        if append_only.returncode == 1:
+            raise RemoteRefAuditError(
+                "published history is not append-only: export ledger public tip "
+                f"{public_tip} is not an ancestor of baseline {clean_sha}"
+            )
+        if append_only.returncode != 0:
+            raise RemoteRefAuditError(
+                "cannot verify append-only publication: git merge-base --is-ancestor "
+                f"{public_tip} {clean_sha} exited {append_only.returncode}: "
+                f"{_result_detail(append_only)}"
+            )
     baseline_roots = {
         line.strip()
         for line in _git(repo, "rev-list", "--max-parents=0", clean_sha).splitlines()
@@ -164,32 +235,27 @@ def audit_refs(
             else:
                 merge_base = _git_result(repo, "merge-base", sha, clean_sha)
                 if merge_base.returncode == 0:
-                    if merge_base.stdout.strip() != clean_sha:
-                        status = "LEAK"
-                    else:
-                        roots = _git_result(repo, "rev-list", "--max-parents=0", sha)
-                        ref_roots = {
-                            line.strip()
-                            for line in roots.stdout.splitlines()
-                            if line.strip()
-                        }
-                        if roots.returncode != 0 or not ref_roots:
-                            records.append(
-                                {
-                                    "ref": ref,
-                                    "sha": sha,
-                                    "status": "UNKNOWN",
-                                    "detail": (
-                                        "git rev-list --max-parents=0 "
-                                        f"{sha} exited {roots.returncode}: "
-                                        f"{_result_detail(roots)}"
-                                    ),
-                                }
-                            )
-                            continue
-                        status = (
-                            "contribution" if ref_roots <= baseline_roots else "LEAK"
+                    roots = _git_result(repo, "rev-list", "--max-parents=0", sha)
+                    ref_roots = {
+                        line.strip()
+                        for line in roots.stdout.splitlines()
+                        if line.strip()
+                    }
+                    if roots.returncode != 0 or not ref_roots:
+                        records.append(
+                            {
+                                "ref": ref,
+                                "sha": sha,
+                                "status": "UNKNOWN",
+                                "detail": (
+                                    "git rev-list --max-parents=0 "
+                                    f"{sha} exited {roots.returncode}: "
+                                    f"{_result_detail(roots)}"
+                                ),
+                            }
                         )
+                        continue
+                    status = "contribution" if ref_roots <= baseline_roots else "LEAK"
                 elif merge_base.returncode == 1:
                     # No merge-base is the original retained/disjoint leak shape.
                     status = "LEAK"
@@ -245,6 +311,11 @@ def main() -> int:
     parser.add_argument("--clean-ref", default="refs/remotes/public/main")
     parser.add_argument("--repo", default=".")
     parser.add_argument(
+        "--ledger",
+        default=str(DEFAULT_LEDGER_PATH),
+        help=f"default: <repo>/{DEFAULT_LEDGER_PATH}",
+    )
+    parser.add_argument(
         "--accept-ref",
         action="append",
         default=[],
@@ -255,7 +326,13 @@ def main() -> int:
     accepted_refs = _parse_accepted_refs(args.accept_ref, parser)
 
     try:
-        records = audit_refs(args.repo, args.remote, args.clean_ref, accepted_refs)
+        records = audit_refs(
+            args.repo,
+            args.remote,
+            args.clean_ref,
+            accepted_refs,
+            ledger_path=args.ledger,
+        )
     except RemoteRefAuditError as error:
         print(f"ERROR: remote-ref audit could not complete: {error}", file=sys.stderr)
         return 2

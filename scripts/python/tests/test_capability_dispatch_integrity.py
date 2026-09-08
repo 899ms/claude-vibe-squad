@@ -28,7 +28,10 @@ from scripts.python.tests.supervisor_lifecycle import (  # noqa: E402
     cleanup_supervisors_before_root,
 )
 import registry_reconciler as rr  # noqa: E402
-from verification_contract import verification_contract_sha256  # noqa: E402
+from verification_contract import (  # noqa: E402
+    derive_verification_contract,
+    verification_contract_sha256,
+)
 
 
 class ManagedSupervisorTestCase(unittest.TestCase):
@@ -98,17 +101,24 @@ def install_board_rail_fixture(root: Path) -> None:
     )
 
     context_builder = root / "scripts/python/dispatch_context_builder.py"
+    # The reconciler imports the builder's terminal-review predicate. Preserve
+    # its real import surface while keeping CLI build output fixture-local.
     context_builder.write_text(
         "from pathlib import Path\n"
         "import sys\n\n"
-        "if len(sys.argv) < 2 or sys.argv[1] != 'build':\n"
-        "    raise SystemExit('fixture supports only board context build')\n"
-        "try:\n"
-        "    output = Path(sys.argv[sys.argv.index('--output') + 1])\n"
-        "except (ValueError, IndexError):\n"
-        "    raise SystemExit('missing --output')\n"
-        "output.parent.mkdir(parents=True, exist_ok=True)\n"
-        "output.write_text('{}\\n', encoding='utf-8')\n",
+        "if __name__ != '__main__':\n"
+        f"    sys.path.append({str(REPO_ROOT / 'scripts/python')!r})\n"
+        f"    source = Path({str(REPO_ROOT / 'scripts/python/dispatch_context_builder.py')!r})\n"
+        "    exec(compile(source.read_text(encoding='utf-8'), str(source), 'exec'))\n"
+        "else:\n"
+        "    if len(sys.argv) < 2 or sys.argv[1] != 'build':\n"
+        "        raise SystemExit('fixture supports only board context build')\n"
+        "    try:\n"
+        "        output = Path(sys.argv[sys.argv.index('--output') + 1])\n"
+        "    except (ValueError, IndexError):\n"
+        "        raise SystemExit('missing --output')\n"
+        "    output.parent.mkdir(parents=True, exist_ok=True)\n"
+        "    output.write_text('{}\\n', encoding='utf-8')\n",
         encoding="utf-8",
     )
 
@@ -967,12 +977,26 @@ class RegistryReconcilerContractTests(unittest.TestCase):
         )
 
     def test_unreadable_review_class_holds_review_instead_of_settling(self) -> None:
+        # Exemption is now based on pinned review evidence, not a role name.
+        # Keep that prerequisite valid so only review_class varies below.
+        contract = derive_verification_contract({
+            "task_id": "TASK-2026-09-07-0001-review-class",
+            "run_id": "RUN-REVIEW-CLASS", "mode": "project",
+            "result_type": "review", "to_model": "claude",
+            "review_required": True,
+            "review_subject_sha256": "a" * 64,
+            "review_subject_author_family": "openai",
+            "review_family": "claude", "review_state": "complete",
+            "judged_state_mutation": False,
+        })
         entry = {
             "specialist": "code-reviewer",
             "to_model": "claude",
             "review_model": "gpt-codex",
             "mandatory_review": "true",
             "write_scope": [],
+            "verification_contract": contract,
+            "verification_contract_sha256": verification_contract_sha256(contract),
         }
         self.assertFalse(
             rr.cross_family_review_pending({**entry, "review_class": "standard"})[0]

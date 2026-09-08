@@ -1,6 +1,24 @@
 # Changelog
 
-## Unreleased
+## v1.1.6
+
+A release-hardening release. The defect shape v1.1.5 named — something broken that reported success —
+recurs throughout, and this release found more of it: a publication gate that could certify the leak
+it was written to catch, a thrash detector resolving 2 of 40 dispatches, a syntax gate reading one
+file of seventy-six. Shipped on top of v1.1.5 (`git tag v1.1.5`, 2026-09-01); the `v1.1.6` tag is
+applied to `main` by Chrono after this work is pushed, so it never names an unpushed tree.
+
+### The publication gate
+
+- The gate that certifies a clean public export could certify the leak it was written to catch. Three
+  review rounds closed a bypass: merging the clean baseline into an old, disjoint lineage classified
+  as a clean contribution; a name-keyed allowlist that would transfer its acceptance to any new
+  lineage sharing the same ref; and an audit that printed PASS having evaluated zero refs. The
+  classifier now decides on contribution ancestry, the allowlist is SHA-pinned rather than name-keyed,
+  and an audit that reaches an empty ref set fails instead of passing.
+- A known exposure is now reported rather than suppressed. One retained pre-clean-slate PR ref is
+  SHA-pinned and reported as accepted risk on every run; the moment that ref moves off its pinned SHA
+  it falls back to a leak, so the exception cannot silently widen into a blanket allow.
 
 ### Routing
 
@@ -27,20 +45,27 @@
 - `vault_get` (chrono-vault MCP) joined the caller's path onto the vault URL without normalising it, so `../../etc/passwd` read outside the vault. Measured before the fix: `../commands/` resolved to `/commands/`. All five traversal shapes now return `invalid vault path`.
 - `prior_art_check` (chrono-dedup) fetched any URL it was given, including after a redirect, so a model-supplied address could reach loopback and RFC1918 hosts. Public destinations only, re-checked on every hop: 127.0.0.1, 169.254.169.254 and 10.0.0.5 are refused; ordinary public hosts still resolve.
 - The README claimed each task "runs in its own sandbox" and "cannot touch anything else", contradicting a correct sentence 45 lines later. Worker actions are isolated by git worktree, not sandboxed, and the README now says so.
+- The launchd agents that keep the board alive execute code from the mutable working checkout, and they source the operator's shell secrets first. This release documents that plainly rather than implying isolation. Separating the executed-code root from the data root is deferred and tracked, not done here.
 
 ### Checks that could not fail
 
 - `dispatch_preflight` swallowed real git failures. `_git_paths` caught `OSError`/`TimeoutExpired` and returned `()` one level below the handler that exists to emit `advisory_scan_failed`, so a git that timed out, a missing git binary, and a non-repository root all produced the output of a clean scan. The three tests covering that handler inject `RuntimeError`, which the function does not catch — they proved the handler works while never exercising how git actually fails. Still fail-open; no longer fail-silent. `git grep`'s exit 1 for "no matches" stays a real answer.
+- Several more diagnostics reported healthy while measuring almost nothing, each now fixed with a test that fails against the old behaviour. The thrash detector resolved 2 of 40 dispatches and never scanned a source namespace carrying 15% of traffic, so a repeat-ID storm and malformed dispatch rows in that namespace were invisible; it now discovers namespaces from the logs, bounds them, and keeps dedup marker labels distinct. The documented shell syntax check validated one file of seventy-six. The capability validator was blind to 73 retired demands. And the code reviewer had every output channel switched off, so it ran and reported nothing. The release audit that passed over an empty ref set is a fourth instance of the same shape, fixed under the publication gate above.
 
 ### CI
 
 - One gate, not thirty test bugs. `dispatch_context_builder` refuses when a lane executable is absent, and 30 test files inherit it, so a runner without the five CLIs failed them all. Four rounds of patching the individually-named failures could not converge. A single stub fixture replaces the per-test patches those rounds added, and a negative control proves `SQUAD_CI_HOST_INDEPENDENT=1` does not weaken the production gate. The registry suite now runs all 7 tests instead of hiding 2.
 - `git commit` ends by spawning `git maintenance run --auto --quiet --detach`, which daemonizes and keeps repacking a fixture repo the test is already deleting, so cleanup died with `Directory not empty`. 31 test files build such a repo. Reproduced on Linux at 266 of 300 trials, 0 of 300 with the guard. `gc.auto=0` alone does not fix it on every git version; `maintenance.auto` names the spawner.
+- The CI base branch is now bound at the dispatch and preservation call sites rather than left to the workflow environment. A first fix set a workflow-level base-branch env and required snapshot configuration; the env half was the wrong layer and was reverted, while the reaper half that binds the base at the call site stayed. Isolated doctor-hook and reconciler dependencies, plus repaired dispatcher-guard and capability fixtures, let the affected suites run.
+- The settlement census the acceptance test asserts on was refreshed to match the prose-only evidence and the elicit-instruction evidence, and the evidence count is now pinned so a future drift fails the test rather than passing quietly.
 
 ### Documentation
 
 - README counts were overstated: 250 skills is 99 once `.agents/` and gemini mirrors collapse, and 16 MCP servers is 12. The version badge said v1.1.4 while the text below it said v1.1.5.
-- README linked to two paths the public export strips, one of them holding a single denied file — so the directory did not exist publicly at all. A gate now refuses any published document that links to a stripped path, using the projector's own policy module so the two cannot disagree.
+- README linked to two paths the public export strips, one of them holding a single denied file — so the directory did not exist publicly at all. A gate now refuses any published document that links to a stripped path, using the projector's own policy module so the two cannot disagree. The remaining public-facing pointers to withheld files were repaired, and the visual-verify mirror the wiring validator checks was refreshed so it passes on the real content.
+- The root docs' licence identifier and a stale demo caption were corrected in the same count-fixing pass, and the AGPL plugin declarations are now registered in `THIRD_PARTY.md` so the licensing surface matches what ships.
+- Guidance that had outlived its subject was removed: the retired-review guidance, a retired vault flag, and a Grok auth-policy claim that no longer held. The triage, skeptic and cleanup doctrine now matches `shared/specialist-runtime-map.tsv` rather than an older routing story.
+- The narrated quick-start omitted a step whose absence made the launcher refuse to start; that and three other launch-blocking gaps in the walkthrough are repaired, along with un-followable install steps elsewhere in the docs.
 
 ## v1.1.5
 

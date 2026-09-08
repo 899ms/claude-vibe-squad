@@ -29,6 +29,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -39,6 +40,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dispatch_checkout import normal_checkout_root  # noqa: E402
 import doctor_fixture  # noqa: E402
+from test_doctor_launch_dependency_parity import install_managed_hook  # noqa: E402
 
 ROOT = normal_checkout_root(Path(__file__).resolve().parents[3])
 
@@ -118,6 +120,7 @@ class DoctorFixtureRunner(unittest.TestCase):
             )
 
             home = fixture / "home"
+            install_managed_hook(ROOT, root, home)
             local_bin = home / ".local" / "bin"
             doctor_fixture.write_stub(local_bin, "ps", doctor_fixture.EMPTY_PS)
             doctor_fixture.stub_launch_dependencies(local_bin, ROOT)
@@ -128,6 +131,8 @@ class DoctorFixtureRunner(unittest.TestCase):
                 "HOME": str(home),
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "VAULT_ROOT": str(root),
+                "STATE_DIR": str(root / "_state"),
+                "VIBESQUAD_STATUS_DIR": str(fixture / "status"),
                 "TERM": "dumb",
                 "LANG": "C",
                 "TMPDIR": str(fixture),
@@ -716,6 +721,24 @@ class DoctorNotificationSpineTest(DoctorFixtureRunner):
                 Path(environment["TMPDIR"]) / "status"
             )
             doctor_fixture.install_reconciler(ROOT, root)
+            # The reconciler now imports dispatch and verification helpers at
+            # module load. Supply their real import closure, without replacing
+            # the registry-membership predicate this suite is exercising.
+            for module in (
+                "dispatch_context_builder.py",
+                "verification_contract.py",
+                "held_action_gate.py",
+                "lane_capability_enforcement.py",
+                "launch_hygiene.py",
+                "seatbelt_profile.py",
+                "specialist_capability_source.py",
+                "board_process_truth.py",
+                "plan_item_binding.py",
+            ):
+                shutil.copy2(
+                    ROOT / "scripts" / "python" / module,
+                    root / "scripts" / "python" / module,
+                )
             if break_reconciler:
                 (root / "scripts" / "python" / "registry_reconciler.py").write_text(
                     "raise SystemExit('reconciler unavailable')\n", encoding="utf-8"

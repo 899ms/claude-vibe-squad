@@ -42,6 +42,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from dispatch_checkout import normal_checkout_root  # noqa: E402
 import doctor_fixture  # noqa: E402
+from test_doctor_launch_dependency_parity import install_managed_hook  # noqa: E402
 
 ROOT = normal_checkout_root(Path(__file__).resolve().parents[3])
 
@@ -134,6 +135,7 @@ class DoctorProbeRunner(unittest.TestCase):
             )
 
             home = fixture / "home"
+            install_managed_hook(ROOT, root, home)
             local_bin = home / ".local" / "bin"
             doctor_fixture.write_stub(local_bin, "ps", doctor_fixture.EMPTY_PS)
             doctor_fixture.stub_launch_dependencies(local_bin, ROOT)
@@ -145,6 +147,8 @@ class DoctorProbeRunner(unittest.TestCase):
                 "HOME": str(home),
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "VAULT_ROOT": str(root),
+                "STATE_DIR": str(root / "_state"),
+                "VIBESQUAD_STATUS_DIR": str(fixture / "status"),
                 "TERM": "dumb",
                 "LANG": "C",
                 "TMPDIR": str(fixture),

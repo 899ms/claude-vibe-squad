@@ -424,7 +424,14 @@ class ContractAdmissionReasonTests(unittest.TestCase):
         # the message without touching the real registry or any mailbox.
         return subprocess.run(
             [str(SEND_TASK), str(packet), "--dry-run"],
-            env={**os.environ, "UV_CACHE_DIR": str(directory / "uv-cache")},
+            env={
+                **os.environ,
+                "UV_CACHE_DIR": str(directory / "uv-cache"),
+                # Match the other dispatch fixture's explicit v2. This real-
+                # checkout dry run tests admission, never branch provisioning,
+                # and must reach that subject even on detached CI HEAD.
+                "SQUAD_BASE_BRANCH": "v2",
+            },
             capture_output=True,
             text=True,
             timeout=120,

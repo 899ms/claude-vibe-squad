@@ -85,6 +85,9 @@ return_artifact: _state/test-dispatch.md
         self.addCleanup(path.unlink, missing_ok=True)
         env = dict(self.dispatch_environment)
         env["VAULT_ROOT"] = str(REPO_ROOT)
+        # These real-checkout dry runs stop before branch provisioning. Name
+        # main explicitly so detached CI HEAD still reaches capability admission.
+        env["SQUAD_BASE_BRANCH"] = "main"
         return subprocess.run(
             [str(SEND_TASK), str(path), "--dry-run"],
             cwd=REPO_ROOT,

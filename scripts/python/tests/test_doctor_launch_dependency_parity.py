@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -36,6 +37,31 @@ from dispatch_checkout import normal_checkout_root  # noqa: E402
 import doctor_fixture  # noqa: E402
 
 ROOT = normal_checkout_root(Path(__file__).resolve().parents[3])
+
+
+def install_managed_hook(repo_root: Path, fixture_root: Path, home: Path) -> None:
+    """Supply doctor's hook prerequisite in the disposable Git repo only.
+
+    Shared by the six doctor suites: use the real installer and reviewed guard
+    so a passing fixture cannot drift from the installation doctor checks.
+    """
+    hooks_source = fixture_root / "scripts" / "hooks"
+    hooks_source.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(repo_root / "scripts" / "hooks" / "pre-commit", hooks_source)
+    subprocess.run(
+        ["/bin/bash", str(repo_root / "docs/install/install-pre-commit-hook.sh")],
+        cwd=fixture_root,
+        env={
+            "HOME": str(home),
+            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+            "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull,
+        },
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
 
 
 # The negative control cannot be built by DELETING a stub: doctor prepends
@@ -64,6 +90,7 @@ class DoctorLaunchDependencyParityTest(unittest.TestCase):
             )
 
             home = fixture / "home"
+            install_managed_hook(ROOT, root, home)
             local_bin = home / ".local" / "bin"
             doctor_fixture.write_stub(local_bin, "ps", doctor_fixture.EMPTY_PS)
             doctor_fixture.stub_launch_dependencies(local_bin, ROOT)
@@ -78,6 +105,8 @@ class DoctorLaunchDependencyParityTest(unittest.TestCase):
                 "HOME": str(home),
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "VAULT_ROOT": str(root),
+                "STATE_DIR": str(root / "_state"),
+                "VIBESQUAD_STATUS_DIR": str(fixture / "status"),
                 "TERM": "dumb",
                 "LANG": "C",
                 "TMPDIR": str(fixture),
@@ -174,6 +203,7 @@ class DoctorLaunchDependencyParityTest(unittest.TestCase):
                 ["git", "init", "-q"], cwd=root, check=True, capture_output=True
             )
             home = fixture / "home"
+            install_managed_hook(ROOT, root, home)
             local_bin = home / ".local" / "bin"
             doctor_fixture.write_stub(local_bin, "ps", doctor_fixture.EMPTY_PS)
             doctor_fixture.stub_launch_dependencies(local_bin, ROOT)
@@ -182,6 +212,8 @@ class DoctorLaunchDependencyParityTest(unittest.TestCase):
                 "HOME": str(home),
                 "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                 "VAULT_ROOT": str(root),
+                "STATE_DIR": str(root / "_state"),
+                "VIBESQUAD_STATUS_DIR": str(fixture / "status"),
                 "TERM": "dumb",
                 "LANG": "C",
                 "TMPDIR": str(fixture),

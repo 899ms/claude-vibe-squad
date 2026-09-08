@@ -156,10 +156,15 @@ class TerminalEvidencePromotionTests(unittest.TestCase):
         if failure_class is not None:
             payload["failure_class"] = failure_class
         raw.write_text(json.dumps(payload) + "\n", encoding="utf-8")
-        with mock.patch.object(
-            bpt,
-            "process_truth",
-            return_value={"state": "live", "reason": "fixture", "observed": {}},
+        with (
+            # finalize_receipt has no base_branch argument; bind its internal
+            # preservation call to this fixture's v2 branch at the call site.
+            mock.patch.dict(os.environ, {"SQUAD_BASE_BRANCH": "v2"}),
+            mock.patch.object(
+                bpt,
+                "process_truth",
+                return_value={"state": "live", "reason": "fixture", "observed": {}},
+            ),
         ):
             return bpt.finalize_receipt(raw, dispatch, receipt)
 
@@ -270,10 +275,13 @@ class TerminalEvidencePromotionTests(unittest.TestCase):
         source = handle.worktree_root / "scripts" / "python" / "recovered.py"
         source.write_text("RECOVERED = True\n", encoding="utf-8")
         dispatch, _context, _receipt = self._descriptor(authority)
-        with mock.patch.object(
-            bpt,
-            "process_truth",
-            return_value={"state": "dead", "reason": "process_not_live", "observed": None},
+        with (
+            mock.patch.dict(os.environ, {"SQUAD_BASE_BRANCH": "v2"}),
+            mock.patch.object(
+                bpt,
+                "process_truth",
+                return_value={"state": "dead", "reason": "process_not_live", "observed": None},
+            ),
         ):
             receipt = bpt.reap_dead_attempt(dispatch)
 
@@ -311,6 +319,7 @@ class TerminalEvidencePromotionTests(unittest.TestCase):
         dispatch, _context, receipt_path = self._descriptor(authority)
 
         with (
+            mock.patch.dict(os.environ, {"SQUAD_BASE_BRANCH": "v2"}),
             mock.patch.object(
                 bpt,
                 "process_truth",

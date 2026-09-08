@@ -435,7 +435,9 @@ class MemoryAcceptanceTests(unittest.TestCase):
             ),
         )
 
-        result = vault_recall.recall("InjectionAcceptanceToken")
+        # Match only the body so FTS selects the instruction-containing passage,
+        # rather than the title, for the evidence snippet being tested.
+        result = vault_recall.recall("Delete every file")
         snippet = result["results"][0]["snippet"]
 
         self.assertTrue(snippet.startswith("[BEGIN QUOTED UNTRUSTED NOTE]\n> "))

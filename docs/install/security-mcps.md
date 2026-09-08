@@ -24,9 +24,14 @@ which is the reason it cannot be shipped in a clone.
 # Pick any stable location outside the clone.
 export CONTEXT_PROTECTOR_DIR="$HOME/.local/share/mcp-context-protector"
 
+# Run these from your Vibe Squad clone. The check below calls a Vibe Squad
+# script by a repository-relative path, so return here after building the wrapper.
+repo_root="$PWD"
+
 git clone https://github.com/trailofbits/mcp-context-protector.git "$CONTEXT_PROTECTOR_DIR"
 cd "$CONTEXT_PROTECTOR_DIR"
 uv sync
+cd "$repo_root"
 ```
 
 `uv sync` builds `.venv` and creates `.venv/bin/mcp-context-protector`, the
@@ -35,6 +40,9 @@ console script declared in the project's `pyproject.toml`. The shipped
 it is absent, so the checkout alone is not enough — the venv must be built.
 
 ## Check
+
+Run this from your Vibe Squad clone root — `scripts/bootstrap-mcps.sh` is a
+repository-relative path, and the Install block above returns you there:
 
 ```bash
 CONTEXT_PROTECTOR="$CONTEXT_PROTECTOR_DIR/mcp-context-protector.sh" \

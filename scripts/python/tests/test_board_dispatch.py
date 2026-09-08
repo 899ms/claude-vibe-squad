@@ -229,6 +229,9 @@ Dry-run dispatch test only.
             path.write_text(packet, encoding="utf-8")
             base_env = os.environ.copy()
             base_env["VAULT_ROOT"] = str(ROOT)
+            # Admission-only dry run: main matches this suite's explicit sites;
+            # no branch is resolved or provisioned, including on detached CI HEAD.
+            base_env["SQUAD_BASE_BRANCH"] = "main"
             pane_env = dict(base_env)
             pane_env["SQUAD_DISPATCH_MODE"] = "pane"
             pane = subprocess.run(
@@ -1136,6 +1139,9 @@ Dry-run dispatch test only.
             environment = {
                 **os.environ,
                 "BOARD_DISPATCH_DESCRIPTOR_PATH": str(dispatch),
+                # Reach the missing-context guard even on a detached checkout;
+                # this denial fixture never provisions or integrates a branch.
+                "SQUAD_BASE_BRANCH": "main",
             }
             process = subprocess.Popen(
                 [

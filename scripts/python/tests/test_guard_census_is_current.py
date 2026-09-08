@@ -185,11 +185,14 @@ class GuardCensusIsCurrentTests(unittest.TestCase):
     def test_basis_counts_are_derived_from_guard_rows(self) -> None:
         def basis_name(value: str) -> str | None:
             plain = value.replace("**", "").lower()
+            if plain.startswith("module docstring"):
+                return "prose-only"
             for name in (
                 "mutation (this sweep)",
                 "mutation (earlier sweep, not re-verified)",
                 "assertion text",
                 "absence",
+                "prose-only",
             ):
                 if plain.startswith(name):
                     return name
