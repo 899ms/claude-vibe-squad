@@ -712,9 +712,12 @@ def _authorize_missing_ledger(
     if allow_missing_ledger is None:
         raise ProjectorError(
             f"{reason}, so the public-rail continuity check has nothing to "
-            "compare against and would pass without looking. If this really is "
-            "the first projection onto this rail, authorise it explicitly with "
-            f"--allow-missing-ledger {ledger_path}"
+            "compare against and would pass without looking. For a genuine "
+            "first run, authorise only the projector's continuity opt-out with "
+            f"--allow-missing-ledger {ledger_path}. This does not authorise a "
+            "complete projection: the trusted product-hygiene gate must also "
+            "pass, and its separate remote-ref audit requires recorded history "
+            "in the private ledger and has no first-run flag."
         )
     if allow_missing_ledger.resolve() != requested:
         raise ProjectorError(
@@ -1045,8 +1048,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--allow-missing-ledger",
         metavar="LEDGER_PATH",
         help=(
-            "authorise the first projection onto a rail with no recorded "
-            "history; must name the same ledger path this run will write"
+            "authorise only the projector's continuity opt-out for a genuine "
+            "first run; must name the same ledger path this run will write. "
+            "A complete projection still requires the trusted product-hygiene "
+            "gate to pass; its separate remote-ref audit requires recorded "
+            "history in the private ledger and has no first-run flag"
         ),
     )
     parser.add_argument("--gate-report", help=f"default: <root>/{DEFAULT_GATE_REPORT_PATH}")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reject staged private-memory artifacts before they enter repository history.
+"""Reviewed pre-commit snapshot, with the legacy leak-guard source interface.
 
 Install from the repository root:
     bash docs/install/install-pre-commit-hook.sh
@@ -15,15 +15,273 @@ hide a restricted staged version or cause a false rejection.
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import hashlib
+import json
 import re
+import runpy
+import shutil
 import subprocess
 import sys
+import tempfile
 
 
 RESTRICTED_FIELD = re.compile(
     rb"^[ \t]*sensitivity:[ \t]*[\"']?restricted[\"']?[ \t]*(?:#.*)?$",
     re.IGNORECASE,
 )
+
+# Authored validators remain the source of truth. The installer copies this
+# explicit execution closure; the hook never imports validators from a checkout.
+SNAPSHOT_INPUTS = (
+    "bin/validate-capabilities.sh",
+    "bin/validate-specialists.sh",
+    "scripts/python/validate_capabilities.py",
+    "scripts/python/validate_specialists.py",
+    "scripts/python/validate_capability_homes.py",
+    "scripts/python/validate_skill_wiring.py",
+    "scripts/python/specialist_capability_source.py",
+    "scripts/python/gen_runtime_tool_summary.py",
+    "scripts/python/repo_root.py",
+    "scripts/python/chrono_state/__init__.py",
+    "scripts/python/chrono_state/thread_charters.py",
+    "shared/lane-policy.tsv",
+)
+MOAT_INPUTS = (
+    "moat/boundary/tier-a.mjs",
+    "moat/boundary/ast-analysis.mjs",
+    "moat/boundary/policy.json",
+    "moat/boundary/reviewed-fixtures.json",
+    "moat/adapters/filesystem.mjs",
+    "moat/adapters/process.mjs",
+    "moat/schema/validate.mjs",
+    "moat/schemas/GuardAnnotation.schema.json",
+    "moat/schemas/InvariantDescriptor.schema.json",
+    "moat/schemas/Verdict.schema.json",
+    "moat/schemas/WaveResult.schema.json",
+)
+TYPESCRIPT_INPUTS = (
+    "moat/node_modules/typescript/package.json",
+    "moat/node_modules/typescript/lib/typescript.js",
+)
+SNAPSHOT_POINTER = "vibe-squad-pre-commit-snapshot.json"
+
+
+def _regular_file(root: Path, relative: str) -> Path:
+    path = root / relative
+    if any(item.is_symlink() for item in (path, *path.parents) if item != root.parent):
+        raise ValueError(f"snapshot input must not be a symlink: {path}")
+    if not path.is_file():
+        raise ValueError(f"missing reviewed snapshot input: {path}")
+    return path
+
+
+def _build_snapshot(root: Path, destination: Path) -> None:
+    inputs = list(SNAPSHOT_INPUTS)
+    if (root / "moat/boundary/tier-a.mjs").exists():
+        inputs.extend(MOAT_INPUTS)
+        if (root / TYPESCRIPT_INPUTS[1]).exists():
+            inputs.extend(TYPESCRIPT_INPUTS)
+        else:
+            print("install-pre-commit-hook: NOTE: TypeScript is absent; staged moat checks will block until dependencies are installed and this installer is rerun.")
+    for relative in inputs:
+        source = _regular_file(root, relative)
+        target = destination / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        target.chmod(0o644)
+
+    # Relocate only the scanner's data root. Its policy and executable imports
+    # stay in the reviewed bundle. Assert the source shape before adapting it so
+    # an upstream change cannot silently defeat the separation.
+    adaptations = {
+        "moat/boundary/tier-a.mjs": (
+            'const MOAT_ROOT = new URL("../", import.meta.url);',
+            'import { pathToFileURL } from "node:url";\n'
+            'const MOAT_ROOT = pathToFileURL(process.env.VIBE_SQUAD_MOAT_DATA_ROOT + "/");',
+        ),
+        "moat/boundary/ast-analysis.mjs": (
+            'await import("typescript")',
+            'await import("../node_modules/typescript/lib/typescript.js")',
+        ),
+    }
+    for relative, (before, after) in adaptations.items():
+        target = destination / relative
+        if target.exists():
+            source = target.read_text(encoding="utf-8")
+            if source.count(before) != 1:
+                raise ValueError(f"review required: snapshot relocation no longer matches {relative}")
+            target.write_text(source.replace(before, after), encoding="utf-8")
+    manifest = {
+        "directory": destination.name,
+        "files": {
+            relative: hashlib.sha256((destination / relative).read_bytes()).hexdigest()
+            for relative in inputs
+        },
+    }
+    (destination / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def _snapshot_root() -> Path:
+    directory = Path(__file__).resolve().parent
+    pointer = _regular_file(directory, SNAPSHOT_POINTER)
+    manifest = json.loads(pointer.read_text(encoding="utf-8"))
+    name = manifest["directory"]
+    if not re.fullmatch(r"\.vibe-squad-snapshot\.[A-Za-z0-9]+", name):
+        raise ValueError("invalid reviewed snapshot directory")
+    root = directory / name
+    for relative, expected in manifest["files"].items():
+        if Path(relative).is_absolute() or ".." in Path(relative).parts:
+            raise ValueError("invalid reviewed snapshot member")
+        path = _regular_file(root, relative)
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+            raise ValueError(f"reviewed snapshot changed: {relative}")
+    if not set(SNAPSHOT_INPUTS).issubset(manifest["files"]):
+        raise ValueError("incomplete reviewed snapshot")
+    return root
+
+
+def _snapshot_python(arguments: list[str]) -> int:
+    # -I removes cwd, PYTHONPATH and user site from Python's import path. Add
+    # back ONLY the copied modules needed by the unchanged shell validators.
+    snapshot = _snapshot_root()
+    sys.path.insert(0, str(snapshot / "scripts/python"))
+    if arguments == ["-V"]:
+        print(f"Python {sys.version.split()[0]}")
+    elif len(arguments) == 2 and arguments[0] == "-c":
+        sys.argv = ["-c"]
+        exec(compile(arguments[1], "<reviewed validator wrapper>", "exec"), {"__name__": "__main__"})
+    else:
+        script = Path(arguments[0]).resolve()
+        script.relative_to(snapshot.resolve())
+        sys.argv = arguments
+        runpy.run_path(str(script), run_name="__main__")
+    return 0
+
+
+def _snapshot_environment(root: Path) -> dict[str, str]:
+    environment = dict(os.environ)
+    for name in ("SQUAD_CI_HOST_INDEPENDENT", "PYTHONPATH", "PYTHONHOME", "NODE_OPTIONS", "NODE_PATH", "BASH_ENV", "ENV"):
+        environment.pop(name, None)
+    environment["VAULT_ROOT"] = str(root)
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    # Match the tracked hook's local-tool search order for existence checks.
+    environment["PATH"] = (str(Path.home() / ".local/bin")
+                           + ":/opt/homebrew/bin:/opt/homebrew/sbin:"
+                           + environment.get("PATH", ""))
+    return environment
+
+
+def _contains(path: Path, token: bytes) -> bool:
+    try:
+        return token in path.read_bytes()
+    except OSError:
+        # The original grep failure produces a warning, never a blocker.
+        return False
+
+
+def _run_validator(snapshot: Path, relative: str, arguments: list[str], environment: dict[str, str], *, quiet: bool = False) -> int:
+    script = _regular_file(snapshot, relative)
+    driver = str(Path(__file__).resolve())
+    if relative.endswith(".sh"):
+        # Keep both maintained wrappers byte-for-byte, including their self-test
+        # attestations and public-tree selection. Only their interpreter is bound
+        # to the isolated snapshot loader. Source receives the original argv.
+        command = [
+            "/bin/bash", "--noprofile", "--norc", "-c",
+            'hook_python=$1; hook_driver=$2; shift 2; '
+            'python3() { "$hook_python" -I -B "$hook_driver" --snapshot-python "$@"; }; '
+            'source "$@"',
+            "snapshot-wrapper", sys.executable, driver, str(script), *arguments,
+        ]
+    else:
+        command = [sys.executable, "-I", "-B", driver, "--snapshot-python", str(script), *arguments]
+    return subprocess.run(command, env=environment, check=False,
+                          stdout=subprocess.DEVNULL if quiet else None,
+                          stderr=subprocess.DEVNULL if quiet else None).returncode
+
+
+def _all_changed_paths(*arguments: str) -> list[str]:
+    result = _git("diff", "--cached", "--name-only", "-z", *arguments)
+    if result.returncode:
+        raise ValueError("unable to inspect staged guard triggers")
+    return [os.fsdecode(path) for path in result.stdout.split(b"\0") if path]
+
+
+def _moat_gate(snapshot: Path, root: Path, environment: dict[str, str]) -> int:
+    paths = _all_changed_paths("--diff-filter=ACMR", "--", "moat/")
+    if not paths:
+        return 0
+    scanner = snapshot / "moat/boundary/tier-a.mjs"
+    node = shutil.which("node", path=environment.get("PATH"))
+    if node is None or not scanner.is_file() or not (root / "moat/boundary/tier-a.mjs").is_file():
+        print("[pre-commit] NOTE: staged moat/ files but 'node' or moat/boundary/tier-a.mjs is unavailable; skipping Tier-A.")
+        print("  Install deps with 'npm ci --prefix moat', ensure node is on PATH, then rerun the reviewed hook installer.")
+        return 0
+    print("[pre-commit] Staged moat/ files — running Tier-A boundary check", flush=True)
+    # Data only: staged code is never imported/executed, and symlink blobs are
+    # materialized as ordinary text. The scanner and policies live elsewhere.
+    with tempfile.TemporaryDirectory(prefix="vibe-pre-commit-moat-") as temporary:
+        data_root = Path(temporary) / "moat"
+        data_root.mkdir()
+        for path in paths:
+            if Path(path).is_absolute() or ".." in Path(path).parts or not path.startswith("moat/"):
+                raise ValueError(f"invalid staged moat path: {path!r}")
+            blob = _git("cat-file", "blob", f":{path}")
+            if blob.returncode:
+                raise ValueError(f"unable to read staged moat blob: {path!r}")
+            target = Path(temporary) / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(blob.stdout)
+        environment = dict(environment, VIBE_SQUAD_MOAT_DATA_ROOT=str(data_root))
+        # Bound argv size without a shell or xargs interpreting filenames.
+        for path in paths:
+            result = subprocess.run([node, str(scanner), "--staged", str(Path(temporary) / path)],
+                                    env=environment, cwd=temporary, check=False)
+            if result.returncode:
+                print("[pre-commit] BLOCKED: moat Tier-A boundary check failed.")
+                return 1
+    return 0
+
+
+def _repository_guards() -> int:
+    snapshot = _snapshot_root()
+    result = _git("rev-parse", "--show-toplevel")
+    if result.returncode:
+        raise ValueError("unable to locate checkout")
+    root = Path(os.fsdecode(result.stdout).rstrip("\n"))
+    os.chdir(root)
+    environment = _snapshot_environment(root)
+    changed = _all_changed_paths()
+    if _all_changed_paths("--", "shared/capabilities/", "shared/registries/"):
+        print("[pre-commit] Capability or registry files changed — running capability validator", flush=True)
+        for arguments, label in (([], "capability validation"), (["--self-test"], "capability validator self-test")):
+            if _run_validator(snapshot, "bin/validate-capabilities.sh", ["--root", str(root), *arguments], environment):
+                print(f"[pre-commit] BLOCKED: {label} failed.")
+                return 1
+    print("[pre-commit] Running full specialist and live capability-home validation", flush=True)
+    if _run_validator(snapshot, "bin/validate-specialists.sh", ["--quiet"], environment):
+        print("[pre-commit] BLOCKED: specialist or live capability validation failed.")
+        return 1
+    if any(re.fullmatch(r"(?:shared/skills/.*\.md|\.(?:claude|agents)/skills/.*/SKILL\.md)", path) for path in changed):
+        print("[pre-commit] Skill files changed — running validate_skill_wiring.py", flush=True)
+        if _run_validator(snapshot, "scripts/python/validate_skill_wiring.py", ["--root", str(root)], environment, quiet=True):
+            print("[pre-commit] BLOCKED: skill wiring validation failed.")
+            return 1
+    warned = False
+    for path in changed:
+        file = root / path
+        if path.endswith(".sh") and file.is_file() and not _contains(file, b"set -"):
+            print(f"[pre-commit] WARN: {path} has no 'set -' safety flags")
+            warned = True
+    if "shared/dispatch-toolkit.sh" in changed:
+        toolkit = root / "shared/dispatch-toolkit.sh"
+        if not toolkit.is_file() or not _contains(toolkit, b"spec-1.5-no-delete-rule"):
+            print("[pre-commit] WARN: dispatch-toolkit.sh missing no-delete rule block")
+            warned = True
+    if warned:
+        print("[pre-commit] Format check warnings found. Commit proceeds (warnings only).")
+    return _moat_gate(snapshot, root, environment)
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[bytes]:
@@ -89,6 +347,28 @@ def _staged_paths() -> list[str] | None:
     return [os.fsdecode(raw) for raw in result.stdout.split(b"\0") if raw]
 
 
+def _release_version_gate() -> int:
+    hook = Path(__file__).resolve()
+    validator = hook.with_name("vibe-squad-validate-release-version.py")
+    # Direct source invocation is useful for checks; installed hooks must only
+    # execute the reviewed companion snapshot, never code from the worktree.
+    if hook.name == "pre-commit" and hook.parent.name == "hooks" and hook.parent.parent.name == "scripts":
+        validator = hook.parent.parent / "python" / "validate_release_version.py"
+    try:
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", str(validator), "--staged"],
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"pre-commit release-version guard: {exc}; refusing commit", file=sys.stderr)
+        return 1
+    if result.returncode:
+        print("pre-commit release-version guard: COMMIT BLOCKED", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main() -> int:
     paths = _staged_paths()
     if paths is None:
@@ -132,8 +412,28 @@ def main() -> int:
             print(f"  {path!r}: {reason}", file=sys.stderr)
         return 1
 
-    return 0
+    release_status = _release_version_gate()
+    if release_status:
+        return release_status
+    # The read-only legacy tracked shell still delegates its FIRST stage here.
+    # Preserve that interface until the operator migrates; installed copies own
+    # the entire sequence and do not delegate back into .githooks.
+    hook = Path(__file__).resolve()
+    if hook == hook.parents[1] / "hooks/pre-commit" and hook.parents[1].name == "scripts":
+        return 0
+    return _repository_guards()
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        if sys.argv[1:2] == ["--build-snapshot"]:
+            _build_snapshot(Path(sys.argv[2]).resolve(), Path(sys.argv[3]).resolve())
+            status = 0
+        elif sys.argv[1:2] == ["--snapshot-python"]:
+            status = _snapshot_python(sys.argv[2:])
+        else:
+            status = main()
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+        print(f"pre-commit snapshot guard: {exc}; COMMIT BLOCKED", file=sys.stderr)
+        status = 1
+    raise SystemExit(status)

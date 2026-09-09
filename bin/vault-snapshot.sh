@@ -19,8 +19,11 @@
 #   bin/vault-snapshot.sh --verify FILE   # re-verify an existing archive
 set -uo pipefail
 
+# shellcheck source-path=SCRIPTDIR source=../shared/vault-snapshot-dest.sh disable=SC1091
+source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/vault-snapshot-dest.sh" || exit $?
+
 VAULT="${CHRONO_VAULT_ROOT:-$HOME/Obsidian-Chrono}"
-DEST="${VAULT_SNAPSHOT_DEST:-$HOME/vault-snapshots}"
+DEST="$(vault_snapshot_dest)" || exit $?
 MODE="snapshot"
 VERIFY_TARGET=""
 

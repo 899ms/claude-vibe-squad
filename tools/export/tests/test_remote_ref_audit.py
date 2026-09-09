@@ -28,6 +28,52 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout.strip()
 
 
+class PreviousPublicTipTests(unittest.TestCase):
+    def test_tipless_ledger_refuses(self) -> None:
+        ledger = Path("/fixture/export-ledger.jsonl")
+        tip = "a" * 40
+        with (
+            mock.patch.object(Path, "is_symlink", return_value=False),
+            mock.patch.object(Path, "exists", return_value=True),
+            mock.patch.object(
+                Path, "read_text", return_value=f'{{"public_tip":"{tip}"}}\n'
+            ) as read,
+        ):
+            self.assertEqual(
+                remote_ref_audit._previous_public_tip(ledger.parent, ledger), tip
+            )
+            read.return_value = '{}\n{"public_tip":null}\n[]\n'
+            with self.assertRaisesRegex(
+                RemoteRefAuditError, "has no recorded public tip"
+            ):
+                remote_ref_audit._previous_public_tip(ledger.parent, ledger)
+
+    def test_unreadable_ledger_refuses(self) -> None:
+        ledger = Path("/fixture/export-ledger.jsonl")
+        tip = "a" * 40
+        for error in (
+            PermissionError("fixture ledger read denied"),
+            UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+        ):
+            with (
+                self.subTest(error=type(error).__name__),
+                mock.patch.object(Path, "is_symlink", return_value=False),
+                mock.patch.object(Path, "exists", return_value=True),
+                mock.patch.object(
+                    Path, "read_text", return_value=f'{{"public_tip":"{tip}"}}\n'
+                ) as read,
+            ):
+                self.assertEqual(
+                    remote_ref_audit._previous_public_tip(ledger.parent, ledger), tip
+                )
+                read.side_effect = error
+                with self.assertRaisesRegex(
+                    RemoteRefAuditError, "cannot read export ledger"
+                ) as caught:
+                    remote_ref_audit._previous_public_tip(ledger.parent, ledger)
+                self.assertIs(caught.exception.__cause__, error)
+
+
 class RemoteRefAuditTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()

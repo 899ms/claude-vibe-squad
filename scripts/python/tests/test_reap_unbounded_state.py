@@ -8,10 +8,9 @@ different to prove names and extensions never classify rescued work.
 
 from __future__ import annotations
 
-from contextlib import redirect_stderr, redirect_stdout
-import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -24,8 +23,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = REPO_ROOT / "scripts" / "python" / "reap_unbounded_state.py"
-sys.path.insert(0, str(SCRIPT.parent))
-import reap_unbounded_state as reaper  # noqa: E402
 
 SCRATCH_ROOT = Path(tempfile.gettempdir())
 NOW = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
@@ -286,30 +283,30 @@ class ReapUnboundedStateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("not allowed with argument", result.stderr)
 
-    def test_missing_snapshot_configuration_fails_before_writing_a_receipt(self) -> None:
-        with (
-            mock.patch.dict(os.environ),
-            mock.patch.object(Path, "home", return_value=self.root / "unused-home"),
-            redirect_stdout(io.StringIO()),
-            redirect_stderr(io.StringIO()) as stderr,
-        ):
+    def test_default_snapshot_directory_selects_real_archives(self) -> None:
+        paths = self._build_candidates()
+        with mock.patch.dict(os.environ, {"HOME": str(self.root)}):
             os.environ.pop("VAULT_SNAPSHOT_DEST", None)
-            with self.assertRaises(SystemExit) as result:
-                reaper.main([
-                    "--root", str(self.root), "--receipt-dir", str(self.receipt_dir),
-                ])
+            result = self._run(include_snapshot_dir=False)
 
-        self.assertEqual(result.exception.code, 2)
-        self.assertIn("--vault-snapshot-dir", stderr.getvalue())
-        self.assertFalse(self.receipt_dir.exists())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        receipt = json.loads((self.receipt_dir / "latest-preserve.json").read_text())
+        self.assertEqual(receipt["vault_snapshot_dir"], str(self.snapshots))
+        snapshots = [item for item in receipt["planned"] if item["category"] == "vault_snapshots"]
+        self.assertEqual(len(snapshots), 1)
+        self.assertEqual(snapshots[0]["path"], str(paths["snapshot"].relative_to(self.root)))
+        self.assertTrue(paths["snapshot"].is_file())
 
     def test_empty_snapshot_environment_does_not_select_the_working_directory(self) -> None:
-        with mock.patch.dict(os.environ, {"VAULT_SNAPSHOT_DEST": ""}):
-            result = self._run("--apply", include_snapshot_dir=False)
+        decoy = self._old_file(self.root / "chrono-vault-decoy.tar.gz", b"wrong directory")
+        with mock.patch.dict(os.environ, {"HOME": str(self.root), "VAULT_SNAPSHOT_DEST": ""}):
+            result = self._run(include_snapshot_dir=False)
 
-        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
-        self.assertIn("--vault-snapshot-dir", result.stderr)
-        self.assertFalse(self.receipt_dir.exists())
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        receipt = json.loads((self.receipt_dir / "latest-preserve.json").read_text())
+        self.assertEqual(receipt["vault_snapshot_dir"], str(self.snapshots))
+        self.assertEqual(receipt["categories"]["vault_snapshots"]["observed_items"], 0)
+        self.assertTrue(decoy.is_file())
 
     def test_snapshot_environment_selects_real_archives(self) -> None:
         paths = self._build_candidates()
@@ -333,6 +330,149 @@ class ReapUnboundedStateTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         receipt = json.loads((self.receipt_dir / "latest-preserve.json").read_text())
         self.assertEqual(receipt["vault_snapshot_dir"], str(self.snapshots))
+
+
+class SnapshotDestinationIdentityTests(unittest.TestCase):
+    """Execute all three consumers in a scratch tree, including a resolver mutation."""
+
+    def setUp(self) -> None:
+        self.scratch = Path(tempfile.mkdtemp(prefix="snapshot-dest-", dir=SCRATCH_ROOT)).resolve()
+        self.addCleanup(shutil.rmtree, self.scratch, ignore_errors=True)
+        self.repo = self.scratch / "repo with spaces"
+        self.user_home = self.scratch / "user home"
+        self.user_home.mkdir()
+        self.vault = self.scratch / "private vault"
+        (self.vault / "notes").mkdir(parents=True)
+        (self.vault / ".chrono-vault").write_text("fixture\n")
+        (self.vault / "notes" / "one.md").write_text("snapshot identity fixture\n")
+        for relative in (
+            "bin/vault-snapshot.sh", "bin/run-nightly.sh", "bin/doctor-log-home.sh",
+            "shared/repo-root.sh", "shared/vault-snapshot-dest.sh",
+            "scripts/python/reap_unbounded_state.py",
+        ):
+            target = self.repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO_ROOT / relative, target)
+
+        # Real snapshot producer; every other nightly phase is a local no-op.
+        # Read the phase list from the script so this fixture cannot call live phases.
+        nightly = (self.repo / "bin/run-nightly.sh").read_text()
+        phases = re.findall(r'run_phase\s+"[^"]+"\s+"\$\{VAULT_ROOT\}/bin/([^"]+)"', nightly)
+        self.assertIn("vault-snapshot.sh", phases)
+        for name in set(phases) - {"vault-snapshot.sh"}:
+            stub = self.repo / "bin" / name
+            stub.write_text("#!/bin/bash\nexit 0\n")
+            stub.chmod(0o755)
+        self.resolver = self.repo / "shared/vault-snapshot-dest.sh"
+        self.receipts = self.scratch / "receipts"
+
+    def _invoke(
+        self, entry: str, *args: str, override: str | None = None
+    ) -> subprocess.CompletedProcess[str]:
+        environment = {
+            "PATH": os.defpath,
+            "HOME": str(self.user_home),
+            "VAULT_ROOT": str(self.repo),
+            "CHRONO_VAULT_ROOT": str(self.vault),
+            "CHRONO_DOCTOR_LOG_DIR": str(self.scratch / "doctor-logs"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+        }
+        if override is not None:
+            environment["VAULT_SNAPSHOT_DEST"] = override
+        interpreter = sys.executable if entry.endswith(".py") else "/bin/bash"
+        return subprocess.run(
+            [interpreter, str(self.repo / entry), *args],
+            cwd=self.repo, env=environment, capture_output=True, text=True,
+            timeout=30, check=False,
+        )
+
+    def _reap(self, *args: str, override: str | None = None) -> subprocess.CompletedProcess[str]:
+        return self._invoke(
+            "scripts/python/reap_unbounded_state.py", "--preserve",
+            "--root", str(self.repo), "--receipt-dir", str(self.receipts),
+            *args, override=override,
+        )
+
+    def _destinations(self, override: str | None = None) -> dict[str, Path]:
+        producer = self._invoke("bin/vault-snapshot.sh", override=override)
+        self.assertEqual(producer.returncode, 0, producer.stdout + producer.stderr)
+        archive = re.search(r"^Archive  : (.+)$", producer.stdout, re.MULTILINE)
+        self.assertIsNotNone(archive, producer.stdout)
+        self.assertIn("OK: 1 notes captured and verified.", producer.stdout)
+        archive_path = Path(archive[1])
+        if not archive_path.is_absolute():
+            archive_path = self.repo / archive_path
+        self.assertTrue(archive_path.is_file())
+
+        nightly = self._invoke("bin/run-nightly.sh", override=override)
+        self.assertEqual(nightly.returncode, 0, nightly.stdout + nightly.stderr)
+        report = re.search(r"vault snapshots: (\d+) archive\(s\), .* total in (.+)", nightly.stdout)
+        self.assertIsNotNone(report, nightly.stdout)
+        self.assertGreater(int(report[1]), 0, "nightly never observed the producer's archive")
+        report_path = Path(report[2])
+        if not report_path.is_absolute():
+            report_path = self.repo / report_path
+
+        result = self._reap(override=override)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        receipt = json.loads((self.receipts / "latest-preserve.json").read_text())
+        self.assertEqual(receipt["categories"]["vault_snapshots"]["observed_items"], int(report[1]))
+        self.assertEqual(receipt["totals"]["removed_items"], 0)
+        return {
+            "vault-snapshot": archive_path.parent.resolve(),
+            "run-nightly": report_path.resolve(),
+            "reaper": Path(receipt["vault_snapshot_dir"]),
+        }
+
+    def _assert_identity(self, expected: Path, override: str | None = None) -> dict[str, Path]:
+        destinations = self._destinations(override)
+        for entry, destination in destinations.items():
+            self.assertEqual(destination, expected, entry)
+        return destinations
+
+    def test_default_and_empty_override_agree_at_all_entry_points(self) -> None:
+        for override in (None, ""):
+            with self.subTest(override=override):
+                self._assert_identity(self.user_home / "vault-snapshots", override)
+
+    def test_environment_override_is_literal_at_all_entry_points(self) -> None:
+        destination = self.scratch / "snapshots 'quoted' $literal [glob] "
+        self._assert_identity(destination, str(destination))
+
+    def test_relative_environment_override_agrees_at_all_entry_points(self) -> None:
+        self._assert_identity(self.repo / "relative snapshots", "relative snapshots")
+
+    def test_single_home_mutation_moves_all_three_entry_points(self) -> None:
+        before = self._assert_identity(self.user_home / "vault-snapshots")
+        original = self.resolver.read_text()
+        self.assertEqual(original.count("/vault-snapshots"), 1)
+        self.resolver.write_text(original.replace("/vault-snapshots", "/moved-snapshots"))
+        after = self._assert_identity(self.user_home / "moved-snapshots")
+        for entry in before:
+            self.assertNotEqual(before[entry], after[entry], entry)
+
+    def test_snapshot_cli_destination_overrides_environment(self) -> None:
+        destination = self.scratch / "explicit snapshots"
+        result = self._invoke(
+            "bin/vault-snapshot.sh", "--dest", str(destination),
+            override=str(self.scratch / "unused override"),
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(f"Archive  : {destination}/chrono-vault-", result.stdout)
+        self.assertEqual(len(list(destination.glob("chrono-vault-*.tar.gz"))), 1)
+
+    def test_failed_or_empty_resolver_stops_reaper_before_receipts(self) -> None:
+        original = self.resolver.read_text()
+        for replacement, message in (
+            ("    return 9 # printf ", "snapshot destination resolver failed"),
+            ("    printf '' # printf ", "snapshot destination resolver returned an empty destination"),
+        ):
+            with self.subTest(replacement=replacement):
+                self.resolver.write_text(original.replace("    printf ", replacement))
+                result = self._reap()
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(self.receipts.exists())
 
 
 if __name__ == "__main__":

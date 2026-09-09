@@ -22,6 +22,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[3]
 EXPORT_DIR = ROOT / "tools" / "export"
@@ -161,6 +162,55 @@ class TestRetiredDirectoryStaysGone(unittest.TestCase):
             [],
             f"tools/export names the retired {RETIRED_STATE_DIR} directory "
             "again; nothing lives there.",
+        )
+
+
+class TestMissingLedgerMessages(unittest.TestCase):
+    def test_refusal_distinguishes_missing_and_tipless_ledgers(self):
+        ledger = Path("/fixture/export-ledger.jsonl")
+        for exists, reason in (
+            (False, "does not exist"),
+            (True, "exists but records no public tip"),
+        ):
+            with self.subTest(exists=exists), mock.patch.object(
+                Path, "exists", return_value=exists
+            ):
+                with self.assertRaises(projector.ProjectorError) as caught:
+                    projector._authorize_missing_ledger(
+                        ledger_path=ledger, allow_missing_ledger=None
+                    )
+                message = str(caught.exception)
+                self.assertIn(f"export ledger {ledger} {reason}", message)
+                self.assertIn(f"--allow-missing-ledger {ledger}", message)
+                self.assertIn("only the projector's continuity opt-out", message)
+                self.assertIn("does not authorise a complete projection", message)
+                self.assertIn("trusted product-hygiene gate must also pass", message)
+                self.assertIn(
+                    "separate remote-ref audit requires recorded history "
+                    "in the private ledger and has no first-run flag",
+                    message,
+                )
+
+                # The warning describes the wider gate without removing this opt-out.
+                self.assertIsNone(
+                    projector._authorize_missing_ledger(
+                        ledger_path=ledger, allow_missing_ledger=ledger
+                    )
+                )
+
+    def test_help_limits_first_run_authorisation_to_projector_continuity(self):
+        help_text = " ".join(projector.build_parser().format_help().split())
+        self.assertIn("only the projector's continuity opt-out", help_text)
+        self.assertIn("must name the same ledger path this run will write", help_text)
+        self.assertIn(
+            "A complete projection still requires the trusted product-hygiene "
+            "gate to pass",
+            help_text,
+        )
+        self.assertIn(
+            "separate remote-ref audit requires recorded history "
+            "in the private ledger and has no first-run flag",
+            help_text,
         )
 
 

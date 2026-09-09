@@ -591,9 +591,43 @@ def dispatcher_workload_class(repo_root: Path, specialist: str) -> str:
         ) from exc
 
 
-def _selected_profile(row: Mapping[str, str], lane: str) -> str:
+ROUTE_TIERS = ("primary", "backup", "escalate", "review", "throughput")
+
+
+def packet_route_tier(fields: Mapping[str, Any]) -> str | None:
+    """Read the opt-in markdown field; only omission means legacy selection.
+
+    For example, ``to_model: claude`` with ``route_tier: review`` requests
+    this specialist's review_profile and requires its review_lane to be claude.
+    This selects a profile only; existing override and review gates still apply.
+    """
+
+    if "route_tier" not in fields:
+        return None
+    raw = fields["route_tier"]
+    if not isinstance(raw, str) or (tier := _unquote(raw)) not in ROUTE_TIERS:
+        raise DispatchContextError(f"route_tier must be one of {', '.join(ROUTE_TIERS)}")
+    return tier
+
+
+def _selected_profile(
+    row: Mapping[str, str], lane: str, *, route_tier: str | None = None
+) -> str:
+    if route_tier is not None:
+        if route_tier not in ROUTE_TIERS:
+            raise DispatchContextError(f"invalid route_tier: {route_tier!r}")
+        if row.get(f"{route_tier}_lane") != lane:
+            raise DispatchContextError(
+                f"route_tier {route_tier!r} does not select lane {lane!r}"
+            )
+        profile = row.get(f"{route_tier}_profile", "")
+        if not profile or profile == "none":
+            raise DispatchContextError(
+                f"route_tier {route_tier!r} has no declared profile"
+            )
+        return profile
     matches = []
-    for prefix in ("primary", "backup", "escalate", "review", "throughput"):
+    for prefix in ROUTE_TIERS:
         row_lane = row.get(f"{prefix}_lane", "")
         if row_lane == lane:
             profile = row.get(f"{prefix}_profile", "")
@@ -601,9 +635,7 @@ def _selected_profile(row: Mapping[str, str], lane: str) -> str:
                 matches.append(profile)
     if not matches:
         raise DispatchContextError(f"runtime map does not select a {lane} profile")
-    # The packet selects a lane, not an escalation tier. Prefer the primary
-    # profile whenever that lane is primary; otherwise use the first routed
-    # tier in the canonical primary→backup→escalate→review→throughput order.
+    # Without an explicit tier, preserve the historical first matching lane.
     return matches[0]
 
 
@@ -646,9 +678,10 @@ def selected_model_sha256_for(
     *,
     lane: str,
     specialist: str,
+    route_tier: str | None = None,
 ) -> str:
     row = _runtime_row(Path(repo_root), specialist)
-    profile_id = _selected_profile(row, lane)
+    profile_id = _selected_profile(row, lane, route_tier=route_tier)
     profile = _profile_row(Path(repo_root), lane=lane, profile_id=profile_id)
     return _sha256_bytes(
         _canonical_json({"profile_id": profile_id, "profile": profile})
@@ -673,7 +706,7 @@ def _trusted_lane_args(lane: str, profile: Mapping[str, str]) -> tuple[str, ...]
 
 
 def trusted_lane_args_for(
-    repo_root: Path, *, lane: str, specialist: str
+    repo_root: Path, *, lane: str, specialist: str, route_tier: str | None = None
 ) -> tuple[str, ...]:
     return _trusted_lane_args(
         lane,
@@ -681,7 +714,7 @@ def trusted_lane_args_for(
             Path(repo_root),
             lane=lane,
             profile_id=_selected_profile(
-                _runtime_row(Path(repo_root), specialist), lane
+                _runtime_row(Path(repo_root), specialist), lane, route_tier=route_tier
             ),
         ),
     )
@@ -1518,7 +1551,8 @@ def build_context(
     row = _runtime_row(root, specialist)
     if row.get("source_namespace") != namespace:
         raise DispatchContextError("packet namespace does not match runtime map")
-    profile = _selected_profile(row, lane)
+    route_tier = packet_route_tier(fields)
+    profile = _selected_profile(row, lane, route_tier=route_tier)
     canonical_role = _canonical_role(root, row)
     try:
         adapter = adapter_path_for(
@@ -1762,7 +1796,9 @@ def build_context(
         "executable": str(executable),
         "executable_sha256": _sha256_file(resolved_executable),
         "lane_args": list(
-            trusted_lane_args_for(root, lane=lane, specialist=specialist)
+            trusted_lane_args_for(
+                root, lane=lane, specialist=specialist, route_tier=route_tier
+            )
         ),
         "write_paths": list(write_scope),
         "read_scope": list(read_scope),
@@ -1799,6 +1835,7 @@ def build_context(
             root,
             lane=lane,
             specialist=specialist,
+            route_tier=route_tier,
         ),
         "profile_bundle_sha256": SETTLED_T1P1_BUNDLE_SHA256,
         "capability_surface_sha256": capability_surface_sha256,

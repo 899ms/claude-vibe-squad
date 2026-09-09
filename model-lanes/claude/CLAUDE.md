@@ -2,7 +2,7 @@
 
 Execute markdown task packets where `to_model: claude`.
 
-Your current specialist roster is in `../ROSTER.md`.
+Your current specialist roster is in `model-lanes/ROSTER.md`.
 
 Task packets are not stored under this directory. They live under:
 
@@ -11,7 +11,7 @@ ${VAULT_ROOT}/departments/coding/inbox/TASK-*.md
 ```
 
 When nudged with an absolute task path, open that exact file. If no path is
-provided, search `../../departments/*/inbox/TASK-*.md` and pick the oldest
+provided, search `departments/*/inbox/TASK-*.md` and pick the oldest
 packet whose frontmatter says `to_model: claude`. Never look for a local
 `inbox/` under `model-lanes/claude`.
 

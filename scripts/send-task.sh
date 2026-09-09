@@ -13,6 +13,15 @@
 #     artifact. Without this the wrapper could only ever author read-only packets,
 #     so any packet asking for code changes silently could not apply them.
 #
+#   REVIEW_MODEL=codex|gpt-codex|claude|gemini|grok|kimi — alternate reviewer for
+#     non-empty REVIEW_TRIGGERS. Defaults to the mapped reviewer; if that reviewer
+#     shares the author's family or is absent, explicitly choose an independent
+#     reviewer. The wrapper refuses before staging when no valid choice is given.
+#
+#   MODEL_OVERRIDE_REASON="Primary lane is unavailable." — required off-primary.
+#     The default 'none' remains explicit for primary-lane packets; both override
+#     guards reject that sentinel when the author leaves the primary lane.
+#
 #   REVIEWS=none | REVIEWS=TASK-...  — required review-provenance declaration.
 #     `none` deliberately marks ordinary work; a canonical task id marks a review
 #     and is stamped into the response envelope for settlement.
@@ -129,6 +138,30 @@ if ! is_compatibility_namespace "${COMPAT_NAMESPACE}"; then
     exit 1
 fi
 
+# Raw operator values interpolated below: SPECIALIST, TO_MODEL,
+# MODEL_OVERRIDE_REASON, WRITE_SCOPE and AUTHORIZED_DELETE_PATHS (through
+# DELETE_PATHS_LINE). REVIEW_TRIGGERS needs the same boundary check. Run before
+# map lookup as well as staging so positional inputs cannot reach awk unchecked.
+if ! python3 -X utf8 - \
+    SPECIALIST "${SPECIALIST}" TO_MODEL "${TO_MODEL}" \
+    MODEL_OVERRIDE_REASON "${MODEL_OVERRIDE_REASON-}" \
+    WRITE_SCOPE "${WRITE_SCOPE-}" \
+    AUTHORIZED_DELETE_PATHS "${AUTHORIZED_DELETE_PATHS-}" \
+    REVIEW_TRIGGERS "${REVIEW_TRIGGERS-}" <<'PYEOF'
+import sys
+
+for name, value in zip(sys.argv[1::2], sys.argv[2::2]):
+    # Match dispatch_context_builder._parse_task_text's splitlines semantics.
+    # Compare content, not just line count: a trailing separator still yields
+    # one line. Empty optional values are valid; never rewrite the input.
+    if value and value.splitlines() != [value]:
+        print(f"ERROR: {name} must be single-line (no parser line breaks)", file=sys.stderr)
+        raise SystemExit(1)
+PYEOF
+then
+    exit 1
+fi
+
 map_field() {
     local specialist="$1" field_index="$2"
     awk -F '\t' -v s="$specialist" -v idx="$field_index" '$1 == s {print $idx; exit}' "${RUNTIME_MAP}"
@@ -153,13 +186,9 @@ if [[ -z "${TO_MODEL}" ]]; then
 fi
 [[ "${TO_MODEL}" == "codex" ]] && TO_MODEL="gpt-codex"
 
-REVIEW_MODEL="none"
+REVIEW_MODEL="${REVIEW_MODEL-}"
 MAPPED_REVIEW_MODEL="none"
 REVIEW_TRIGGERS="${REVIEW_TRIGGERS:-[]}"
-if [[ "$REVIEW_TRIGGERS" == *$'\n'* || "$REVIEW_TRIGGERS" == *$'\r'* ]]; then
-    echo "ERROR: REVIEW_TRIGGERS must be one single-line inline list"
-    exit 1
-fi
 MANDATORY_REVIEW="false"
 if [[ "${SPECIALIST}" != "none" && -f "${RUNTIME_MAP}" ]]; then
     # Canonical map fields used here: source_namespace=2 primary_lane=7 review_lane=14.
@@ -178,11 +207,28 @@ fi
 
 # Review is a property of this packet. The hardened dispatcher validates the
 # four-token enum and rejects a flag/list mismatch; this wrapper only derives
-# the boolean and mapped reviewer from whether the explicit list is empty.
+# the boolean from whether the explicit list is empty. An explicit reviewer wins
+# over the primary-oriented map default; never invent an alternate reviewer.
 review_triggers_compact="${REVIEW_TRIGGERS//[[:space:]]/}"
 if [[ "$review_triggers_compact" != "[]" ]]; then
     MANDATORY_REVIEW="true"
-    REVIEW_MODEL="$MAPPED_REVIEW_MODEL"
+    REVIEW_MODEL="${REVIEW_MODEL:-${MAPPED_REVIEW_MODEL}}"
+    [[ "${REVIEW_MODEL}" == "codex" ]] && REVIEW_MODEL="gpt-codex"
+    case "${REVIEW_MODEL}" in
+        gpt-codex|claude|gemini|grok|kimi|none) ;;
+        *)
+            echo "ERROR: invalid REVIEW_MODEL '${REVIEW_MODEL}'; expected codex, gpt-codex, claude, gemini, grok, or kimi"
+            exit 1
+            ;;
+    esac
+    # Each supported lane names one provider family. Normalize the Codex alias
+    # above before applying the same separation required by the hardened guard.
+    if [[ "${REVIEW_MODEL}" == "none" || "${REVIEW_MODEL}" == "${TO_MODEL}" ]]; then
+        echo "ERROR: no valid cross-family reviewer for author '${TO_MODEL}' (reviewer '${REVIEW_MODEL}'); set REVIEW_MODEL to an independent model lane"
+        exit 1
+    fi
+else
+    REVIEW_MODEL="none"
 fi
 
 if [[ ! -x "${HARDENED_DISPATCH}" ]]; then

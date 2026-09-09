@@ -1,9 +1,25 @@
 #!/usr/bin/env bash
-# Hermetic self-test for the tracked pre-commit capability/registry gate.
+# Hermetic installed-snapshot controls, plus legacy tracked-hook parity checks.
 
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+HOOK_TEST_PYTHON="${PRE_COMMIT_PYTHON:-python3}"
+# Pin the interpreter for nested legacy wrappers too. Set PRE_COMMIT_PYTHON to
+# an absolute virtualenv interpreter when the host has several Python versions.
+HOOK_TEST_PYTHON="$(command -v "${HOOK_TEST_PYTHON}")"
+export PATH="$(dirname "${HOOK_TEST_PYTHON}"):${PATH}"
+export PYTHONDONTWRITEBYTECODE=1
+export HOOK_TEST_PYTHON
+# The tracked fixture prepends its own PATH. An exported Bash function keeps
+# its nested Python calls pinned without editing that read-only hook.
+python3() { "${HOOK_TEST_PYTHON}" -B "$@"; }
+export -f python3
+while IFS= read -r git_variable; do
+    unset "${git_variable}"
+done < <(git rev-parse --local-env-vars)
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+"${HOOK_TEST_PYTHON}" -I -B "${ROOT}/tests/hooks/test_pre_commit.py" -v
 TMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/vibe-pre-commit.XXXXXX")"
 trap 'rm -rf "$TMP_ROOT"' EXIT
 
@@ -15,10 +31,12 @@ mkdir -p \
     "$TEST_REPO/.githooks" \
     "$TEST_REPO/bin" \
     "$TEST_REPO/scripts/hooks" \
+    "$TEST_REPO/scripts/python" \
     "$TEST_REPO/shared/capabilities/project" \
     "$TEST_REPO/shared/registries"
 cp "$ROOT/.githooks/pre-commit" "$TEST_REPO/.githooks/pre-commit"
 cp "$ROOT/scripts/hooks/pre-commit" "$TEST_REPO/scripts/hooks/pre-commit"
+cp "$ROOT/scripts/python/validate_release_version.py" "$TEST_REPO/scripts/python/validate_release_version.py"
 
 cat > "$TEST_REPO/bin/validate-capabilities.sh" <<'STUB'
 #!/usr/bin/env bash
@@ -52,7 +70,10 @@ git -C "$TEST_REPO" init -q
 git -C "$TEST_REPO" config user.name "Pre-commit Self-test"
 git -C "$TEST_REPO" config user.email "pre-commit-selftest@example.invalid"
 git -C "$TEST_REPO" config core.hooksPath .githooks
-printf 'baseline\n' > "$TEST_REPO/README.md"
+# Keep the real release claims in the baseline so reset retains the gate inputs.
+for release_document in CHANGELOG.md CLAUDE.md README.md SECURITY.md; do
+    cp "$ROOT/$release_document" "$TEST_REPO/$release_document"
+done
 git -C "$TEST_REPO" add .
 git -C "$TEST_REPO" -c core.hooksPath=/dev/null commit -qm baseline
 

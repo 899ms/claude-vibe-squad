@@ -33,10 +33,11 @@ import unittest
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from dispatch_checkout import normal_checkout_root  # noqa: E402
 import doctor_fixture  # noqa: E402
 
-ROOT = normal_checkout_root(Path(__file__).resolve().parents[3])
+# These tests read/run doctor fixtures, never dispatch a board task. Reading the
+# current worktree also makes an uncommitted doctor fix visible to its tests.
+ROOT = Path(__file__).resolve().parents[3]
 
 
 def install_managed_hook(repo_root: Path, fixture_root: Path, home: Path) -> None:
@@ -48,6 +49,11 @@ def install_managed_hook(repo_root: Path, fixture_root: Path, home: Path) -> Non
     hooks_source = fixture_root / "scripts" / "hooks"
     hooks_source.mkdir(parents=True, exist_ok=True)
     shutil.copy2(repo_root / "scripts" / "hooks" / "pre-commit", hooks_source)
+    python_source = fixture_root / "scripts" / "python"
+    python_source.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(
+        repo_root / "scripts" / "python" / "validate_release_version.py", python_source
+    )
     subprocess.run(
         ["/bin/bash", str(repo_root / "docs/install/install-pre-commit-hook.sh")],
         cwd=fixture_root,
@@ -267,6 +273,77 @@ class LaunchDependencyListHasOneHomeTest(unittest.TestCase):
                 continue  # named as model-lane products rather than shell commands
             with self.subTest(command=command):
                 self.assertIn(command, quickstart)
+
+
+class DoctorExternalEntryPointsTest(unittest.TestCase):
+    """Exercise the existing external-entry block without running other phases.
+
+    No Git initialization or hook installation is needed for this block. The
+    installer fixture supplies the same directory seam and fake launchd state.
+    """
+
+    def run_external_entries(self, *, missing_monitor=False, unloaded_monitor=False, launchctl=True):
+        sys.path.insert(0, str(ROOT / "tests" / "hooks"))
+        from test_install_routines import CHROME, MONITOR, RoutineFixture
+
+        fixture = RoutineFixture(launchctl=launchctl)
+        self.addCleanup(fixture.close)
+        fixture.seed(MONITOR, loaded=not unloaded_monitor)
+        fixture.seed(CHROME)
+        for script in ("squad-monitor.sh", "chrome-bootstrap.sh"):
+            if missing_monitor and script == "squad-monitor.sh":
+                continue
+            (fixture.root / "bin" / script).write_text("# fixture; never executed\n")
+        doctor = (ROOT / "bin" / "doctor.sh").read_text()
+        start = doctor.index("# --- Externally-registered entry points")
+        end = doctor.index("# DECISION (2026-08-11) on docs/brain-map.md", start)
+        block = doctor[start:end]
+        # Refuse to run an old copy whose glob would read the operator's agents.
+        self.assertIn("${SQUAD_LAUNCHAGENTS_DIR:-", block)
+        notes = """set -uo pipefail
+GREP_USABLE=true
+ISSUES=()
+note_ok() { printf 'OK: %s\\n' "$*"; }
+note_skip() { printf 'SKIP: %s\\n' "$*"; }
+note_unknown() { printf 'UNKNOWN: %s\\n' "$*"; }
+note_warn() { printf 'WARN: %s\\n' "$*"; }
+note_issue() { printf 'ISSUE: %s\\n' "$*"; }
+"""
+        counts = '\nprintf "COUNTS: plists=%s scripts=%s missing=%s probed=%s unprobed=%s\\n" "$PLIST_COUNT" "$REGISTERED_COUNT" "$REGISTERED_MISSING" "$LAUNCHD_PROBED" "$LAUNCHD_UNPROBED"\n'
+        before = fixture.snapshot(), fixture.state()
+        result = subprocess.run(
+            ["/bin/bash", "-c", notes + block + counts],
+            env=fixture.env, cwd=fixture.root, capture_output=True, text=True, timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual((fixture.snapshot(), fixture.state()), before)
+        self.assertEqual(fixture.mutations(), [])
+        return result, fixture
+
+    def test_existing_block_discovers_and_probes_both_jobs_once(self):
+        result, fixture = self.run_external_entries()
+        self.assertIn("COUNTS: plists=2 scripts=2 missing=0 probed=2 unprobed=0", result.stdout)
+        self.assertIn("all 2 launchd job(s)", result.stdout)
+        self.assertEqual(len(fixture.calls()), 2)
+        self.assertEqual({call[1].rsplit("/", 1)[-1] for call in fixture.calls()}, {"com.chrono.squad-monitor", "com.vibesquad.chrome"})
+
+    def test_missing_script_positive_control(self):
+        result, _fixture = self.run_external_entries(missing_monitor=True)
+        self.assertIn("COUNTS: plists=2 scripts=2 missing=1 probed=2 unprobed=0", result.stdout)
+        self.assertIn("1/2 launchd-registered script(s) missing", result.stdout)
+
+    def test_unloaded_monitor_positive_control_names_monitor(self):
+        result, _fixture = self.run_external_entries(unloaded_monitor=True)
+        issues = [line for line in result.stdout.splitlines() if line.startswith("ISSUE:")]
+        self.assertEqual(len(issues), 1, result.stdout)
+        self.assertIn("com.chrono.squad-monitor", issues[0])
+        self.assertNotIn("com.vibesquad.chrome", issues[0])
+
+    def test_missing_launchctl_reports_unmeasured_jobs(self):
+        result, _fixture = self.run_external_entries(launchctl=False)
+        self.assertIn("COUNTS: plists=2 scripts=2 missing=0 probed=0 unprobed=2", result.stdout)
+        self.assertIn("UNKNOWN: 2 launchd job(s)", result.stdout)
+        self.assertNotIn("all 2 launchd job(s)", result.stdout)
 
 
 if __name__ == "__main__":

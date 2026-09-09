@@ -1394,7 +1394,10 @@ LAUNCHD_FAILING=()
 LAUNCHD_PROBED=0
 LAUNCHD_UNPROBED=0
 LAUNCHCTL_DOMAIN="gui/$(id -u 2>/dev/null || printf '%s' "${UID:-0}")"
-for plist in "${HOME}"/Library/LaunchAgents/*.plist; do
+# Reuse the installer's directory seam for fixture audits; ownership and the
+# managed/reporting-only label sets remain in bin/install-routines.sh --status.
+DOCTOR_LAUNCHAGENTS_DIR="${SQUAD_LAUNCHAGENTS_DIR:-${HOME}/Library/LaunchAgents}"
+for plist in "${DOCTOR_LAUNCHAGENTS_DIR}"/*.plist; do
     [[ -e "$plist" ]] || continue
     PLIST_COUNT=$((PLIST_COUNT + 1))
     # A plutil that cannot read a plist yields the same empty path list as a
@@ -1450,7 +1453,7 @@ elif [[ "${GREP_USABLE}" != true ]]; then
     note_unknown "launchd registration audit could not run: grep is unavailable"
 elif [[ "${PLIST_COUNT}" -eq 0 ]]; then
     note_skip "no launchd agents are registered for this HOME" \
-        "No ${HOME}/Library/LaunchAgents/*.plist to audit — nothing is scheduled from this HOME"
+        "No ${DOCTOR_LAUNCHAGENTS_DIR}/*.plist to audit — nothing is scheduled from this directory"
 elif [[ "${PLIST_UNREADABLE}" -gt 0 ]]; then
     note_unknown "${PLIST_UNREADABLE}/${PLIST_COUNT} launchd plist(s) could not be read" \
         "${PLIST_UNREADABLE} of ${PLIST_COUNT} plist(s) were unreadable; the scripts they register were NOT checked"
@@ -1466,7 +1469,7 @@ fi
 # scripts. Declared-and-present is not loaded, and loaded is not succeeding.
 if [[ "${LAUNCHD_PROBED}" -eq 0 ]] && [[ "${LAUNCHD_UNPROBED}" -eq 0 ]]; then
     note_skip "no launchd job on this HOME runs a script from this repository" \
-        "None of the ${PLIST_COUNT} plist(s) in ${HOME}/Library/LaunchAgents names a script under this checkout, so there is no scheduled job of this repository's to probe"
+        "None of the ${PLIST_COUNT} plist(s) in ${DOCTOR_LAUNCHAGENTS_DIR} names a script under this checkout, so there is no scheduled job of this repository's to probe"
 else
     if [[ "${LAUNCHD_UNPROBED}" -gt 0 ]]; then
         note_unknown "${LAUNCHD_UNPROBED} launchd job(s) running repo scripts could not be probed" \

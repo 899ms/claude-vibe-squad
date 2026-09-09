@@ -476,6 +476,9 @@ class DoctorTargetContractTest(unittest.TestCase):
             guard = root / "scripts" / "hooks" / "pre-commit"
             guard.parent.mkdir(parents=True)
             shutil.copy2(ROOT / "scripts" / "hooks" / "pre-commit", guard)
+            validator = root / "scripts" / "python" / "validate_release_version.py"
+            validator.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / "scripts" / "python" / "validate_release_version.py", validator)
             subprocess.run(
                 ["bash", str(ROOT / "docs/install/install-pre-commit-hook.sh")],
                 cwd=root, env=environment, check=True, capture_output=True,

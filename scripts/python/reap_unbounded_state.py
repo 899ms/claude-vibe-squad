@@ -445,9 +445,22 @@ def receipt_path(receipt_dir: Path, mode: str) -> Path:
     return receipt_dir / "latest-apply.json"
 
 
+def snapshot_destination() -> Path:
+    """Read the shell callers' resolver without copying its environment/default rules."""
+    resolver = Path(__file__).resolve().parents[2] / "shared" / "vault-snapshot-dest.sh"
+    result = subprocess.run(
+        ["bash", str(resolver)], capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise ValueError(f"snapshot destination resolver failed: {result.stderr.strip()}")
+    destination = result.stdout.removesuffix("\n")
+    if not destination:
+        raise ValueError("snapshot destination resolver returned an empty destination")
+    return Path(destination)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    snapshot_default = os.environ.get("VAULT_SNAPSHOT_DEST") or None
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--preserve", action="store_true", help="dry run (default)")
     modes.add_argument("--apply", action="store_true", help="remove planned items")
@@ -460,9 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vault-snapshot-dir",
         type=Path,
-        default=snapshot_default,
-        required=snapshot_default is None,
-        help="snapshot directory (required unless VAULT_SNAPSHOT_DEST is set)",
+        help="snapshot directory (default: shared/vault-snapshot-dest.sh; honors VAULT_SNAPSHOT_DEST)",
     )
     parser.add_argument(
         "--receipt-dir",
@@ -477,11 +488,15 @@ def main(argv: list[str] | None = None) -> int:
     arguments = build_parser().parse_args(argv)
     try:
         now = parse_now(arguments.now)
-    except ValueError as exc:
+        snapshot_directory = (
+            arguments.vault_snapshot_dir
+            if arguments.vault_snapshot_dir is not None
+            else snapshot_destination()
+        ).resolve()
+    except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     root = arguments.root.resolve()
-    snapshot_directory = arguments.vault_snapshot_dir.resolve()
     receipt_dir = (
         arguments.receipt_dir.resolve()
         if arguments.receipt_dir

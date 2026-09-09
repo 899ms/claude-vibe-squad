@@ -118,6 +118,15 @@ Two specific habits, because these are the ways the rule gets skipped:
 - **A count is a claim about your command, not about the world.** Before reporting one —
   above all a zero — run the same query against a case whose answer you already know. If
   the known-positive also comes back empty, the command is broken and the number is noise.
+  **Then name that control in the same breath as the number.** A clean result stated without
+  the control that proves it is not reportable — not because the number is probably wrong,
+  but because neither Chrono nor the operator can tell which it is. Stating the control is
+  what makes the claim checkable by someone other than its author, and it is the half that
+  keeps getting dropped. Measured 2026-09-08, both under momentum by a Chrono that already
+  knew the first sentence of this rule: a text substitution silently failed to match, so a
+  test that appeared to prove a validator's behaviour proved nothing; and a check run against
+  the wrong hooks directory reached the operator as a false statement that a live commit gate
+  was inactive. A cross-family reviewer caught the second one, not Chrono.
 - **Check the exact surface the claim is about.** A pattern that targets files inside a
   directory says nothing about the directory; a file's bytes say nothing about what invokes
   it; a fixed-size grep window says nothing about where a section ends.

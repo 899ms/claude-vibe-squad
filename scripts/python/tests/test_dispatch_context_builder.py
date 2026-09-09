@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import csv
 import hashlib
 import json
 import os
@@ -87,6 +88,293 @@ EXPECTED_AUTHORITY_FIELDS = {
     "expires_at",
     "nonce",
 }
+
+
+# Frozen from TASK-2026-09-08-1536-3ffac3af's complete route matrix at
+# 1ef85aa2. This historical regression fixture is independent of the live map;
+# test_known_shadowed_bindings pins the old and requested profiles explicitly.
+# Columns: specialist, requested tier, lane, declared profile, shadowing profile.
+SHADOWED_BINDINGS = tuple(tuple(line.split()) for line in """
+accessibility-engineer escalate gemini gemini.flash.high gemini.flash.default
+agentops escalate claude claude.fable.max claude.fable.xhigh
+ai-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+ai-engineer review claude claude.opus5.high claude.opus5.xhigh
+architect escalate claude claude.fable.max claude.opus5.max
+asset-provenance-and-rights-auditor escalate claude claude.fable.max claude.fable.xhigh
+backend-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+backend-engineer review claude claude.opus5.high claude.opus5.xhigh
+brand-voice escalate claude claude.fable.max claude.fable.xhigh
+code-reviewer escalate codex codex.sol.ultra codex.astra.max
+content-verifier escalate claude claude.fable.max claude.fable.xhigh
+data-extraction-engineer escalate codex codex.sol.ultra codex.sol.high
+database-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+database-engineer review claude claude.opus5.high claude.opus5.xhigh
+detection-engineer escalate claude claude.opus5.max claude.opus5.high
+devops-engineer escalate codex codex.sol.ultra codex.astra.max
+editor escalate claude claude.fable.max claude.fable.xhigh
+exodia escalate codex codex.sol.ultra codex.astra.max
+exodia review claude claude.opus5.max claude.opus5.high
+experimental-attacker review claude claude.opus5.max claude.fable.max
+exploit-developer escalate codex codex.sol.high codex.daybreak.default
+frontend-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+game-designer escalate claude claude.fable.max claude.fable.xhigh
+game-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+game-engineer review claude claude.opus5.high claude.opus5.xhigh
+harness-optimizer escalate claude claude.fable.max claude.fable.xhigh
+ichigo review codex codex.sol.ultra codex.sol.high
+image-designer escalate gemini gemini.flash.high gemini.flash.default
+incident-responder escalate claude claude.opus5.max claude.opus5.high
+interactive-audio-designer escalate gemini gemini.flash.high gemini.flash.default
+knowledge-librarian escalate claude claude.fable.max claude.fable.xhigh
+level-narrative-designer escalate claude claude.fable.max claude.fable.xhigh
+localization-specialist escalate claude claude.fable.max claude.fable.xhigh
+loop-operator escalate claude claude.fable.max claude.fable.xhigh
+mac-ops escalate claude claude.fable.max claude.fable.xhigh
+memory-curator escalate claude claude.fable.max claude.fable.xhigh
+music-composer escalate gemini gemini.flash.high gemini.flash.default
+performance-optimizer escalate claude claude.opus5.max claude.opus5.xhigh
+performance-optimizer review claude claude.opus5.high claude.opus5.xhigh
+privacy-steward escalate claude claude.opus5.max claude.opus5.high
+product-manager escalate claude claude.fable.max claude.opus5.xhigh
+prompt-engineer escalate claude claude.fable.max claude.fable.xhigh
+red-team-operator escalate codex codex.sol.high codex.daybreak.default
+refactor-cleaner escalate claude claude.opus5.max claude.opus5.xhigh
+refactor-cleaner review claude claude.opus5.high claude.opus5.xhigh
+reverse-engineer escalate codex codex.sol.high codex.daybreak.default
+scout escalate claude claude.opus5.max claude.opus5.high
+scraping-engineer escalate codex codex.sol.ultra codex.astra.max
+security-analyst escalate codex codex.sol.high codex.daybreak.default
+site-reliability-engineer escalate codex codex.sol.ultra codex.astra.max
+smart-contract-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+smart-contract-engineer review claude claude.opus5.high claude.opus5.xhigh
+social-strategist escalate gemini gemini.flash.high gemini.flash.default
+software-supply-chain-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+sound-designer escalate gemini gemini.flash.high gemini.flash.default
+summarizer escalate kimi kimi.k3.256k kimi.k3.high
+summarizer throughput kimi kimi.k2.7.bulk kimi.k3.high
+synthesizer escalate claude claude.fable.max claude.fable.xhigh
+systems-engineer escalate codex codex.sol.ultra codex.astra.max
+technical-writer escalate claude claude.fable.max claude.fable.xhigh
+test-engineer escalate claude claude.opus5.max claude.opus5.high
+threat-modeler review codex codex.sol.ultra codex.sol.high
+triage escalate claude claude.fable.max claude.fable.xhigh
+ui-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+vibecoding-check escalate codex codex.sol.ultra codex.astra.high
+video-director escalate gemini gemini.flash.high gemini.flash.default
+video-editor escalate gemini gemini.flash.high gemini.flash.default
+voice-narrator escalate gemini gemini.flash.high gemini.flash.default
+""".strip().splitlines())
+
+
+class ExplicitRouteTierTests(unittest.TestCase):
+    def test_known_shadowed_bindings(self) -> None:
+        self.assertEqual(len(SHADOWED_BINDINGS), 68)
+        self.assertEqual(len({case[0] for case in SHADOWED_BINDINGS}), 59)
+        self.assertEqual(sum(case[1] == "review" for case in SHADOWED_BINDINGS), 11)
+        for specialist, tier, lane, expected, previous in SHADOWED_BINDINGS:
+            with self.subTest(specialist=specialist, tier=tier):
+                # An earlier matching tier must not shadow the explicit one.
+                row = {"primary_lane": lane, "primary_profile": previous,
+                       f"{tier}_lane": lane, f"{tier}_profile": expected}
+                self.assertEqual(dcb._selected_profile(row, lane), previous)
+                self.assertEqual(
+                    dcb._selected_profile(row, lane, route_tier=tier), expected
+                )
+
+
+    def test_all_declared_bindings_and_legacy_defaults(self) -> None:
+        with (ROOT / "shared/specialist-runtime-map.tsv").open() as stream:
+            rows = list(csv.DictReader(stream, delimiter="\t"))
+        count = 0
+        divergences = []
+        model_changes = 0
+        for row in rows:
+            for tier in ("primary", "backup", "escalate", "review", "throughput"):
+                lane, profile_id = row[f"{tier}_lane"], row[f"{tier}_profile"]
+                if not profile_id or profile_id == "none":
+                    continue
+                count += 1
+                with self.subTest(specialist=row["specialist"], tier=tier):
+                    # Independent historical rule, not the selector under test.
+                    legacy_id = next(
+                        row[f"{prefix}_profile"]
+                        for prefix in ("primary", "backup", "escalate", "review", "throughput")
+                        if row[f"{prefix}_lane"] == lane
+                        and row[f"{prefix}_profile"] not in ("", "none")
+                    )
+                    expected = dcb._profile_row(ROOT, lane=lane, profile_id=profile_id)
+                    legacy = dcb._profile_row(ROOT, lane=lane, profile_id=legacy_id)
+                    for requested, selected_id, selected in (
+                        (None, legacy_id, legacy), (tier, profile_id, expected)
+                    ):
+                        self.assertEqual(
+                            dcb._selected_profile(row, lane, route_tier=requested), selected_id
+                        )
+                        kwargs = dict(lane=lane, specialist=row["specialist"], route_tier=requested)
+                        self.assertEqual(
+                            dcb.trusted_lane_args_for(ROOT, **kwargs),
+                            dcb._trusted_lane_args(lane, selected),
+                        )
+                        self.assertEqual(
+                            dcb.selected_model_sha256_for(ROOT, **kwargs),
+                            hashlib.sha256(dcb._canonical_json(
+                                {"profile_id": selected_id, "profile": selected}
+                            )).hexdigest(),
+                        )
+                    if legacy_id != profile_id:
+                        divergences.append((row["specialist"], tier, lane, profile_id, legacy_id))
+                        model_changes += legacy["model_id"] != expected["model_id"]
+        self.assertEqual((len(rows), count, model_changes), (71, 285, 25))
+        self.assertEqual(divergences, list(SHADOWED_BINDINGS))
+
+    @staticmethod
+    def _build_binding(base: Path, specialist: str, tier: str | None, lane: str):
+        row = dcb._runtime_row(ROOT, specialist)
+        root, packet = DispatchContextBuilderTests()._fake_repo_for_lane(
+            base, lane=lane, model=dcb.LANE_TO_MODEL[lane],
+            specialist=specialist, source_namespace=row["source_namespace"],
+        )
+        with (root / "shared/specialist-runtime-map.tsv").open("w") as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(row), delimiter="\t")
+            writer.writeheader()
+            writer.writerow(row)
+        (root / "shared/registries/profiles.tsv").write_text(
+            (ROOT / "shared/registries/profiles.tsv").read_text()
+        )
+        if tier is not None:
+            packet.write_text(packet.read_text().replace(
+                "mode: project\n", f"mode: project\nroute_tier: {tier}\n"
+            ))
+        with mock.patch.dict(dcb.LANE_CLI_PATHS, {lane: Path("/bin/sh")}):
+            context = dcb.build_context(
+                root, packet, attempt_id="d-" + "7" * 32, generation=1,
+                now=1_784_800_000, nonce="8" * 64,
+            )
+        return root, packet, context["authority"]
+
+    @staticmethod
+    def _supervisor_profile_guard(root: Path, authority: dict):
+        # Execute the actual packet/hash/profile admission block, ending before
+        # any launch or action-scope work. No supervisor process is started.
+        import verification_contract as vc
+        source = (ROOT / "bin/board-supervisor.sh").read_text()
+        start = source.index('board_dispatch_context = trusted_context and execution_kind == "lane"')
+        end = source.index('if (\n    not isinstance(authority["action_scope"], list)', start)
+
+        def deny(reason):
+            raise ValueError(reason)
+
+        namespace = {
+            "trusted_context": True, "execution_kind": "lane",
+            "authority": authority, "repo_path": root,
+            "lane": authority["lane"], "specialist": authority["specialist"],
+            "task_id": authority["task_id"], "re": re, "deny": deny,
+            "sha256_file": dcb._sha256_file,
+            "read_yaml_frontmatter": vc.read_yaml_frontmatter,
+            "validate_verification_contract": vc.validate_verification_contract,
+            "verification_contract_sha256": vc.verification_contract_sha256,
+            "ContractError": vc.ContractError,
+            "DispatchContextError": dcb.DispatchContextError,
+            "packet_route_tier": dcb.packet_route_tier,
+            "trusted_lane_args_for": dcb.trusted_lane_args_for,
+            "selected_model_sha256_for": dcb.selected_model_sha256_for,
+            "lane_policy_evidence_for": dcb.lane_policy_evidence_for,
+        }
+        exec(compile(source[start:end], "supervisor-profile-guard", "exec"), namespace)
+        return namespace
+
+    def test_builder_and_supervisor_agree_for_all_68_shadowed_bindings(self) -> None:
+        for specialist, tier, lane, profile_id, _previous in SHADOWED_BINDINGS:
+            with self.subTest(specialist=specialist, tier=tier), tempfile.TemporaryDirectory() as directory:
+                root, _packet, authority = self._build_binding(Path(directory), specialist, tier, lane)
+                profile = dcb._profile_row(ROOT, lane=lane, profile_id=profile_id)
+                expected_hash = hashlib.sha256(dcb._canonical_json(
+                    {"profile_id": profile_id, "profile": profile}
+                )).hexdigest()
+                self.assertEqual(authority["selected_model_sha256"], expected_hash)
+                self.assertEqual(tuple(authority["lane_args"]), dcb._trusted_lane_args(lane, profile))
+                # build_context's first selection feeds the plan, separately
+                # from its argument and model-pin helper calls.
+                plan = {
+                    "schema": "board-dispatch-plan/v1",
+                    **{key: authority[key] for key in (
+                        "task_id", "attempt_id", "generation", "lane",
+                        "write_paths", "read_scope", "expected_result_path",
+                    )},
+                    "profile": profile_id,
+                }
+                self.assertEqual(authority["plan_sha256"], hashlib.sha256(dcb._canonical_json(plan)).hexdigest())
+                guard = self._supervisor_profile_guard(root, authority)
+                self.assertEqual(guard["controller_model_sha256"], expected_hash)
+                self.assertEqual(guard["controller_lane_args"], tuple(authority["lane_args"]))
+                self.assertEqual(set(authority), EXPECTED_AUTHORITY_FIELDS)
+
+    def test_primary_positive_control_and_quoted_review(self) -> None:
+        for tier in (None, "primary", "review", "'review'", '\"review\"'):
+            with self.subTest(tier=tier), tempfile.TemporaryDirectory() as directory:
+                lane = "codex" if tier in (None, "primary") else "claude"
+                root, _packet, authority = self._build_binding(
+                    Path(directory), "backend-engineer", tier, lane
+                )
+                guard = self._supervisor_profile_guard(root, authority)
+                self.assertEqual(guard["controller_model_sha256"], authority["selected_model_sha256"])
+                profile_id = "codex.astra.high" if lane == "codex" else "claude.opus5.high"
+                profile = dcb._profile_row(ROOT, lane=lane, profile_id=profile_id)
+                self.assertEqual(tuple(authority["lane_args"]), dcb._trusted_lane_args(lane, profile))
+
+    def test_invalid_tiers_and_unbound_routes_fail_closed(self) -> None:
+        self.assertIsNone(dcb.packet_route_tier({}))
+        for raw in (None, "", "none", "null", "Review", "escalation", "[]", [], {}, True, 1):
+            with self.subTest(raw=raw), self.assertRaises(dcb.DispatchContextError):
+                dcb.packet_route_tier({"route_tier": raw})
+        row = {"primary_lane": "codex", "primary_profile": "codex.astra.high",
+               "review_lane": "claude", "review_profile": "claude.opus5.max"}
+        for tier, lane in (("review", "codex"), ("backup", "codex"), ("throughput", "codex"), ("typo", "codex")):
+            with self.subTest(tier=tier), self.assertRaises(dcb.DispatchContextError):
+                dcb._selected_profile(row, lane, route_tier=tier)
+        for value in (None, "", "none"):
+            with self.subTest(profile=value), self.assertRaises(dcb.DispatchContextError):
+                dcb._selected_profile({**row, "review_profile": value}, "claude", route_tier="review")
+
+    def test_invalid_packet_tier_is_rejected_by_builder(self) -> None:
+        for tier in ("", "none", "null", "[]", "true", "Review", "review", "throughput"):
+            with self.subTest(tier=tier), tempfile.TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(dcb.DispatchContextError, "route_tier"):
+                    self._build_binding(Path(directory), "backend-engineer", tier, "codex")
+
+    def test_explicit_tier_keeps_registry_lane_and_model_checks(self) -> None:
+        row = {"review_lane": "claude", "review_profile": "missing-profile"}
+        for profile in ("missing-profile", "codex.astra.high"):
+            row["review_profile"] = profile
+            with mock.patch.object(dcb, "_runtime_row", return_value=row):
+                for resolver in (dcb.selected_model_sha256_for, dcb.trusted_lane_args_for):
+                    with self.subTest(profile=profile, resolver=resolver.__name__), self.assertRaises(dcb.DispatchContextError):
+                        resolver(ROOT, lane="claude", specialist="test", route_tier="review")
+
+    def test_supervisor_rejects_substitution_and_packet_tampering(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, packet, authority = self._build_binding(
+                Path(directory), "experimental-attacker", "review", "claude"
+            )
+            self._supervisor_profile_guard(root, authority)
+            for field, value, reason in (
+                ("lane_args", list(dcb.trusted_lane_args_for(root, lane="claude", specialist="experimental-attacker")), "lane arguments"),
+                ("selected_model_sha256", dcb.selected_model_sha256_for(root, lane="claude", specialist="experimental-attacker"), "selected model"),
+                ("lane_policy_row_sha256", "0" * 64, "auth policy"),
+            ):
+                with self.subTest(field=field), self.assertRaisesRegex(ValueError, reason):
+                    self._supervisor_profile_guard(root, {**authority, field: value})
+            original = packet.read_text()
+            packet.write_text(original.replace("route_tier: review", "route_tier: backup"))
+            with self.assertRaisesRegex(ValueError, "packet content"):
+                self._supervisor_profile_guard(root, authority)
+            # Even with a matching packet hash, stale review args cannot attest
+            # a packet requesting backup; invalid tier values also fail closed.
+            for tier in ("backup", "none", "[]", "true", "null", ""):
+                packet.write_text(original.replace("route_tier: review", f"route_tier: {tier}"))
+                updated = {**authority, "packet_sha256": dcb._sha256_file(packet)}
+                with self.subTest(tier=tier), self.assertRaisesRegex(ValueError, "lane arguments|profile cannot be resolved"):
+                    self._supervisor_profile_guard(root, updated)
 
 
 class DispatchContextBuilderTests(unittest.TestCase):

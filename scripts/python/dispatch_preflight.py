@@ -19,6 +19,7 @@ import re
 import subprocess
 import sys
 from typing import Any, Mapping, Sequence
+import unicodedata
 
 import board_process_truth as process_truth
 import dispatch_context_builder as context_builder
@@ -92,6 +93,23 @@ class PreflightVerdict:
 
 def _field(fields: Mapping[str, str], name: str) -> str:
     return context_builder._unquote(fields.get(name, ""))  # noqa: SLF001
+
+
+def has_explanatory_override_reason(value: str) -> bool:
+    """Require letters; reject decorated and common look-alike forms of 'none'.
+
+    Validation only: retain the original reason in the packet. No minimum word
+    length or ASCII-only rule, so brief and non-English explanations still work.
+    Both preflight and the shell override guard use this predicate.
+    """
+    normalized = unicodedata.normalize("NFKD", value).casefold()
+    # Compatibility forms fold above; Greek/Cyrillic confusables need an explicit
+    # mapping. Ignore punctuation, spaces, combining marks and invisible padding.
+    letters = "".join(character for character in normalized if character.isalpha())
+    letters = letters.translate(str.maketrans({
+        "п": "n", "ν": "n", "η": "n", "о": "o", "ο": "o", "е": "e", "ε": "e",
+    }))
+    return bool(letters) and letters != "none"
 
 
 def _parse_acknowledgements(raw: str) -> frozenset[str]:
@@ -177,15 +195,19 @@ def _validate_contract(
     namespace = _field(fields, "source_namespace")
     if row.get("source_namespace") != namespace:
         raise ExactContractViolation("packet namespace does not match runtime map")
-    if lane != row.get("primary_lane") and not _field(fields, "model_override_reason"):
+    override_reason = _field(fields, "model_override_reason").strip().lower()
+    if lane != row.get("primary_lane") and not has_explanatory_override_reason(override_reason):
         raise ExactContractViolation(
-            "packet lane differs from the runtime-map primary without model_override_reason"
+            "packet lane differs from the runtime-map primary without a non-placeholder "
+            "model_override_reason (empty, punctuation-only or a look-alike of none is not a reason)"
         )
 
     # These calls bind the packet to the selected runtime/profile registries and
     # prove that its canonical role exists. They intentionally do not probe a
     # lane executable; host admission and trusted-context build own that gate.
-    profile_id = context_builder._selected_profile(row, lane)  # noqa: SLF001
+    profile_id = context_builder._selected_profile(  # noqa: SLF001
+        row, lane, route_tier=context_builder.packet_route_tier(fields)
+    )
     profile = context_builder._profile_row(  # noqa: SLF001
         repo_root, lane=lane, profile_id=profile_id
     )
@@ -232,7 +254,9 @@ def _validate_contract(
             "profile_id": profile_id,
             "registry_model": profile["model_id"],
             "effective_model": profile["model_id"],
-            "review_lane": row.get("review_lane", "none"),
+            "review_lane": context_builder.MODEL_TO_LANE.get(
+                _field(fields, "review_model"), _field(fields, "review_model") or "none"
+            ),
             "model_override": lane != row.get("primary_lane"),
         },
         prompt_bytes,

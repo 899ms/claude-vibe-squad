@@ -824,6 +824,7 @@ try:
         publish_prepared_worktree_outputs,
         reclaim_lane_cwd_outputs,
         lane_policy_evidence_for,
+        packet_route_tier,
         selected_model_sha256_for,
         trusted_lane_args_for,
     )
@@ -925,27 +926,6 @@ if (
 ):
     deny("authenticated launch authority has invalid lane arguments")
 board_dispatch_context = trusted_context and execution_kind == "lane"
-if board_dispatch_context:
-    try:
-        controller_lane_args = trusted_lane_args_for(
-            repo_path,
-            lane=lane,
-            specialist=specialist,
-        )
-        controller_model_sha256 = selected_model_sha256_for(
-            repo_path,
-            lane=lane,
-            specialist=specialist,
-        )
-        controller_lane_policy = lane_policy_evidence_for(repo_path, lane)
-    except DispatchContextError as exc:
-        deny(f"trusted launch profile cannot be resolved: {exc}")
-    if tuple(authority["lane_args"]) != controller_lane_args:
-        deny("trusted launch lane arguments do not match the closed controller ABI")
-    if authority["selected_model_sha256"] != controller_model_sha256:
-        deny("trusted launch selected model does not match the profile registry")
-    if any(authority[key] != controller_lane_policy[key] for key in controller_lane_policy):
-        deny("trusted launch auth policy does not match the lane registry")
 packet_path = None
 packet_frontmatter = {}
 pinned_contract = {}
@@ -974,6 +954,31 @@ if board_dispatch_context:
     ]:
         deny("canonical packet contract does not match the authenticated contract hash")
     canary_cleanup_requested = packet_frontmatter.get("board_canary_autoclean") is True
+# Resolve the tier only after authenticating the packet that requested it.
+if board_dispatch_context:
+    try:
+        route_tier = packet_route_tier(packet_frontmatter)
+        controller_lane_args = trusted_lane_args_for(
+            repo_path,
+            lane=lane,
+            specialist=specialist,
+            route_tier=route_tier,
+        )
+        controller_model_sha256 = selected_model_sha256_for(
+            repo_path,
+            lane=lane,
+            specialist=specialist,
+            route_tier=route_tier,
+        )
+        controller_lane_policy = lane_policy_evidence_for(repo_path, lane)
+    except DispatchContextError as exc:
+        deny(f"trusted launch profile cannot be resolved: {exc}")
+    if tuple(authority["lane_args"]) != controller_lane_args:
+        deny("trusted launch lane arguments do not match the closed controller ABI")
+    if authority["selected_model_sha256"] != controller_model_sha256:
+        deny("trusted launch selected model does not match the profile registry")
+    if any(authority[key] != controller_lane_policy[key] for key in controller_lane_policy):
+        deny("trusted launch auth policy does not match the lane registry")
 if (
     not isinstance(authority["action_scope"], list)
     or any(not isinstance(item, str) for item in authority["action_scope"])

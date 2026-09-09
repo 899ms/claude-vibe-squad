@@ -1310,8 +1310,28 @@ if [[ "$SPECIALIST" != "none" ]]; then
     ROUTE_RANKING="$(ranked_route_selection "$SPECIALIST" "$TO_MODEL" || true)"
 
     if [[ "$TO_MODEL" != "$MAP_MODEL" ]]; then
-        if [[ -z "$MODEL_OVERRIDE_REASON" ]]; then
-            die "unsafe model override for '${SPECIALIST}': to_model=${TO_MODEL}, map=${MAP_MODEL}. Add model_override_reason."
+        # The parser already trims the raw scalar. Match preflight's unquoting
+        # so an empty/placeholder reason cannot become an explained override.
+        override_reason="$MODEL_OVERRIDE_REASON"
+        if [[ "$override_reason" == \"*\" || "$override_reason" == \'*\' ]]; then
+            override_reason="${override_reason:1:${#override_reason}-2}"
+        fi
+        if [[ "$override_reason" =~ ^[[:space:]]*([Nn][Oo][Nn][Ee])?[[:space:]]*$ ]]; then
+            die "unsafe model override for '${SPECIALIST}': to_model=${TO_MODEL}, map=${MAP_MODEL}. Add a non-placeholder model_override_reason (empty or none is not a reason)."
+        fi
+        # Preflight owns the Unicode/content rule so the two gates cannot drift.
+        if ! MODEL_OVERRIDE_REASON_VALUE="$MODEL_OVERRIDE_REASON" python3 - "$DISPATCH_PREFLIGHT" <<'PYEOF'
+import os
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(sys.argv[1]).parent))
+from dispatch_preflight import has_explanatory_override_reason
+
+raise SystemExit(0 if has_explanatory_override_reason(os.environ["MODEL_OVERRIDE_REASON_VALUE"]) else 1)
+PYEOF
+        then
+            die "unsafe model override for '${SPECIALIST}': to_model=${TO_MODEL}, map=${MAP_MODEL}. Add an explanatory model_override_reason (punctuation-only or a disguised placeholder is not a reason)."
         fi
     fi
     # A sanctioned override may intentionally target the mapped backup. There

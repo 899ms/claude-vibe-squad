@@ -2,7 +2,7 @@
 
 Execute markdown task packets where `to_model: grok`.
 
-Your current specialist roster is in `../ROSTER.md`.
+Your current specialist roster is in `model-lanes/ROSTER.md`.
 
 Task packets are not stored under this directory. They live under:
 

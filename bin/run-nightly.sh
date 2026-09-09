@@ -27,6 +27,8 @@ export PATH="${HOME}/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
 
 # shellcheck source-path=SCRIPTDIR source=../shared/repo-root.sh disable=SC1091
 source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/repo-root.sh"
+# shellcheck source-path=SCRIPTDIR source=../shared/vault-snapshot-dest.sh disable=SC1091
+source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null || printf '%s' "${BASH_SOURCE[0]}")")/.." && pwd -P)/shared/vault-snapshot-dest.sh" || exit $?
 # shellcheck source=doctor-log-home.sh disable=SC1091
 source "${VAULT_ROOT}/bin/doctor-log-home.sh" || exit $?
 STATE_DIR="${VAULT_ROOT}/_state"
@@ -152,7 +154,7 @@ run_phase "vault-snapshot"       "${VAULT_ROOT}/bin/vault-snapshot.sh"
 # The snapshot tool never deletes an older archive on purpose -- "the cleanup
 # deleted the backups" is the failure it exists to prevent -- so growth is
 # reported here rather than silently reclaimed. Each archive is ~273 MB.
-snapshot_dir="${VAULT_SNAPSHOT_DEST:-${HOME}/vault-snapshots}"
+snapshot_dir="$(vault_snapshot_dest)" || exit $?
 if [[ -d "${snapshot_dir}" ]]; then
     snapshot_count="$(find "${snapshot_dir}" -name 'chrono-vault-*.tar.gz' | wc -l | tr -d ' ')"
     snapshot_size="$(du -sh "${snapshot_dir}" 2>/dev/null | cut -f1)"

@@ -1,5 +1,14 @@
 # Changelog
 
+<!-- Enforced by scripts/python/validate_release_version.py:
+Level-two headers whose first whitespace-delimited token is Unreleased or
+[Unreleased] (case-insensitive) are skipped, including suffixes like " - TBD"
+or " (next)". The first remaining level-two header must be vX.Y.Z
+(case-insensitive), optionally followed by " - YYYY-MM-DD", " — YYYY-MM-DD",
+or " (YYYY-MM-DD)". Other release header text is rejected; a released header
+is required.
+-->
+
 ## v1.1.6
 
 A release-hardening release. The defect shape v1.1.5 named — something broken that reported success —
