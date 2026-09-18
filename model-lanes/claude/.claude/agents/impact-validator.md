@@ -6,9 +6,9 @@ generated_by: lane-capability-registry/v1
 capability_registry_sha256: 83bf08d4eb6d20c92f79809010e2930e2332b1371c1e68b8de6143697c1187ac
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd
+capability_source_sha256: 7dd25cb116e2a776985f507f0183f9ef503bf381ae192cd5b5f00ba8f81a6b2b
 skills: ["chain-construct","program-rubric-lookup","systematic-attacking"]
-mcps: ["chrono-dedup","chrono-research-arsenal","chrono-vault","sequential-thinking"]
+mcps: ["chrono-research-arsenal","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---
 

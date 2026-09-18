@@ -13,6 +13,13 @@ field, not a suffix another consumer must rediscover with a regular expression.
 The only current-state view is ``project_workboard`` and the only consistency
 gate is ``validate_workboard``.  Writers append; no update/delete API exists.
 
+To correct an open item's content without changing its state or focus, use
+``append_event("restate", work_id=..., summary=..., why=..., next_action=...)``.
+All three content fields are required. For a legacy opening, pass ``item_id``
+instead; a unique current alias is also accepted through ``item_id``. The action
+becomes the item's resume action (and the board's next action only if already
+active). Terminal or unknown targets are refused; prior events remain intact.
+
 Legacy checkbox rows remain readable for the migration pre-image and its one
 id-less completed historical row. That compatibility branch is contained in
 this parser so it does not create a second authority.
@@ -56,6 +63,7 @@ NONTERMINAL_KINDS = frozenset(
         "fold",
         "switch",
         "advance",
+        "restate",
         "block",
         "restart",
         COMPACTION_KIND,
@@ -179,6 +187,10 @@ _REQUIRED_FIELD_VARIANTS = {
     "advance": (
         frozenset({"work_id", "next_action"}),
         frozenset({"item_id", "next_action"}),
+    ),
+    "restate": (
+        frozenset({"work_id", "summary", "why", "next_action"}),
+        frozenset({"item_id", "summary", "why", "next_action"}),
     ),
     "block": (
         frozenset({"work_id", "resume_action"}),
@@ -854,6 +866,20 @@ def project_workboard(document: WorkboardDocument) -> WorkboardProjection:
                 last_event_id=record.event_id,
                 last_index=index,
             )
+        elif kind == "restate":
+            target, target_display = target_identity(fields)
+            item = items.get(target)
+            if item is None:
+                transition_issue(record, f"restate target {target_display} is not open")
+                continue
+            items[target] = replace(
+                item,
+                summary=fields["summary"],
+                why=fields["why"],
+                resume_action=fields["next_action"],
+                last_event_id=record.event_id,
+                last_index=index,
+            )
         elif kind == "block":
             target, target_display = target_identity(fields)
             item = items.get(target)
@@ -1374,7 +1400,7 @@ def _normalize_append_facts(
             normalized["work_id"] = generate_work_id(declared)
         return normalized
 
-    if kind in {"switch", "advance", "block", "complete", "archive"}:
+    if kind in {"switch", "advance", "restate", "block", "complete", "archive"}:
         alias = normalized.get("item_id")
         if alias is not None:
             if "work_id" in normalized:
@@ -1421,7 +1447,7 @@ def _event_target_work_id(event: WorkEvent) -> str | None:
         return fields.get("target_work_id") or _legacy_work_id(fields["target_id"])
     if event.kind == "drop":
         return fields.get("work_id") or _legacy_work_id(fields["request_id"])
-    if event.kind in {"switch", "advance", "block", "complete", "archive"}:
+    if event.kind in {"switch", "advance", "restate", "block", "complete", "archive"}:
         return fields.get("work_id") or _legacy_work_id(fields["item_id"])
     return None
 
@@ -1453,6 +1479,20 @@ def _event_is_reflected(
         return False
     before_item = next((item for item in before.items if item.work_id == target), None)
     after_item = next((item for item in after.items if item.work_id == target), None)
+
+    if event.kind == "restate":
+        return (
+            before_item is not None
+            and after_item is not None
+            and after_item.state == before_item.state
+            and after_item.last_event_id == event.event_id
+            and after_item.summary == event.fields["summary"]
+            and after_item.why == event.fields["why"]
+            and after_item.resume_action == event.fields["next_action"]
+            and after.active_work_id == before.active_work_id
+            and after.waiting_work_id == before.waiting_work_id
+            and after.idle == before.idle
+        )
 
     if event.kind in {
         "start",

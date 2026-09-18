@@ -14,13 +14,6 @@
       "homepage": "https://github.com/mtarcure/claude-vibe-squad"
     },
     {
-      "name": "chrono-dedup",
-      "description": "Target-scoped prior-art checks across local squad memory and, when Chrono provides network access, public disclosure sources including Solodit.",
-      "category": "research",
-      "source": "./plugins/chrono-dedup",
-      "homepage": "https://github.com/mtarcure/claude-vibe-squad"
-    },
-    {
       "name": "chrono-research-arsenal",
       "description": "External research arsenal: arxiv_search + xai_search + Perplexity Sonar (via official MCP). Used by all chrono roles needing external data.",
       "category": "research",

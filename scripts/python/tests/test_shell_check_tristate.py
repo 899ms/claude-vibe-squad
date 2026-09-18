@@ -473,12 +473,8 @@ class DoctorTargetContractTest(unittest.TestCase):
 
             # A zero-state install still needs the reviewed, installed guard.
             # Match the README setup before asking doctor whether it is clean.
-            guard = root / "scripts" / "hooks" / "pre-commit"
-            guard.parent.mkdir(parents=True)
-            shutil.copy2(ROOT / "scripts" / "hooks" / "pre-commit", guard)
-            validator = root / "scripts" / "python" / "validate_release_version.py"
-            validator.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(ROOT / "scripts" / "python" / "validate_release_version.py", validator)
+            from scripts.python.tests.test_doctor_launch_dependency_parity import seed_guard_inputs
+            seed_guard_inputs(ROOT, root)
             subprocess.run(
                 ["bash", str(ROOT / "docs/install/install-pre-commit-hook.sh")],
                 cwd=root, env=environment, check=True, capture_output=True,

@@ -73,8 +73,8 @@ block key already names the gate.
   handoff made where processing is involved.
 
 ## Notes — supersession + cross-lane home
-- **Sources fully subsumed:** `shared/skills/_retired/rights-and-provenance-gate.md` +
-  `shared/skills/_retired/consent-and-likeness-check.md`. Every component step and acceptance condition is represented by
+- **Sources fully subsumed:** the retired `rights-and-provenance-gate` and
+  `consent-and-likeness-check` skills. Every component step and acceptance condition is represented by
   the combined procedure and record above; the standalone skills are retirement candidates rather than parallel
   S4 triggers.
 - **Canonical home:** `.claude/skills/rule6-rights-gate/SKILL.md`. Because its audience is `specialist`,

@@ -24,7 +24,6 @@ from pathlib import Path
 HERE = Path(__file__).resolve()
 sys.path.insert(0, str(HERE.parents[1]))
 
-import projector  # noqa: E402
 import record_publish  # noqa: E402
 
 
@@ -53,8 +52,14 @@ class RecordPublishTests(unittest.TestCase):
             encoding="utf-8",
         )
 
+    @unittest.skipUnless(
+        (HERE.parents[1] / "target_scan.py").is_file(),
+        "private integration: projector imports the withheld target_scan.py",
+    )
     def test_a_publish_record_moves_the_continuity_anchor(self) -> None:
         """The whole point: the next projection must see the tip we pushed."""
+        import projector
+
         self._projection("1" * 40)
         record_publish.record_publish(
             ledger_path=self.ledger, root=self.repo, published_tip=self.tip,

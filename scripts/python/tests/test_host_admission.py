@@ -649,6 +649,9 @@ class ProductionWiringTests(unittest.TestCase):
         # NOT permission to keep growing. The file is a shell script carrying
         # frontmatter generation, preflight, admission and dispatch, and it
         # wants decomposing; the next increase should extract, not raise.
+        # 2026-09-11: extracted strict task frontmatter parsing unchanged into
+        # shared/send-task-input-guards.sh, loaded at the old definition site
+        # after die is initialized and before parsing or staging. Cap unchanged.
         self.assertLessEqual(len(sender_lines), 1963)
 
 

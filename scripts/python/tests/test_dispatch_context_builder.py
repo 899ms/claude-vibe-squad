@@ -117,6 +117,7 @@ exodia review claude claude.opus5.max claude.opus5.high
 experimental-attacker review claude claude.opus5.max claude.fable.max
 exploit-developer escalate codex codex.sol.high codex.daybreak.default
 frontend-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+frontend-engineer review codex codex.sol.high codex.astra.high
 game-designer escalate claude claude.fable.max claude.fable.xhigh
 game-engineer escalate claude claude.opus5.max claude.opus5.xhigh
 game-engineer review claude claude.opus5.high claude.opus5.xhigh
@@ -159,6 +160,7 @@ test-engineer escalate claude claude.opus5.max claude.opus5.high
 threat-modeler review codex codex.sol.ultra codex.sol.high
 triage escalate claude claude.fable.max claude.fable.xhigh
 ui-engineer escalate claude claude.opus5.max claude.opus5.xhigh
+ui-engineer review codex codex.sol.high codex.astra.high
 vibecoding-check escalate codex codex.sol.ultra codex.astra.high
 video-director escalate gemini gemini.flash.high gemini.flash.default
 video-editor escalate gemini gemini.flash.high gemini.flash.default
@@ -167,10 +169,54 @@ voice-narrator escalate gemini gemini.flash.high gemini.flash.default
 
 
 class ExplicitRouteTierTests(unittest.TestCase):
+    def test_kimi_retires_unsupported_max_profile(self) -> None:
+        with (ROOT / "shared/registries/profiles.tsv").open() as stream:
+            profiles = list(csv.DictReader(stream, delimiter="\t"))
+        self.assertEqual(
+            {row["profile_id"] for row in profiles if row["lane"] == "kimi"},
+            {"kimi.k2.7.bulk", "kimi.k3.256k", "kimi.k3.high"},
+        )
+        with self.assertRaisesRegex(dcb.DispatchContextError, "exactly one row"):
+            dcb._profile_row(ROOT, lane="kimi", profile_id="kimi.k3.max")
+
+        # Kimi 1.40.0 exposes thinking on/off, not distinct high/max efforts.
+        # Retiring max must preserve the arguments delivered to each old route.
+        expected_args = ("--yolo", "--thinking", "--model", "kimi-code/k3")
+        for specialist, tier in (
+            ("experimental-attacker", "escalate"),
+            ("kestrel", "primary"),
+            ("kestrel", "escalate"),
+        ):
+            with self.subTest(specialist=specialist, tier=tier):
+                row = dcb._runtime_row(ROOT, specialist)
+                self.assertEqual(
+                    dcb._selected_profile(row, "kimi", route_tier=tier),
+                    "kimi.k3.high",
+                )
+                self.assertEqual(
+                    dcb.trusted_lane_args_for(
+                        ROOT, lane="kimi", specialist=specialist, route_tier=tier
+                    ),
+                    expected_args,
+                )
+
+    def test_effort_comparison_detects_codex_high_max_difference(self) -> None:
+        args = {}
+        for effort in ("high", "max"):
+            profile = dcb._profile_row(
+                ROOT, lane="codex", profile_id=f"codex.astra.{effort}"
+            )
+            args[effort] = dcb._trusted_lane_args("codex", profile)
+            self.assertEqual(args[effort][-2:], (
+                "-c", f'model_reasoning_effort="{effort}"'
+            ))
+        self.assertEqual(args["high"][:-1], args["max"][:-1])
+        self.assertNotEqual(args["high"], args["max"])
+
     def test_known_shadowed_bindings(self) -> None:
-        self.assertEqual(len(SHADOWED_BINDINGS), 68)
+        self.assertEqual(len(SHADOWED_BINDINGS), 70)
         self.assertEqual(len({case[0] for case in SHADOWED_BINDINGS}), 59)
-        self.assertEqual(sum(case[1] == "review" for case in SHADOWED_BINDINGS), 11)
+        self.assertEqual(sum(case[1] == "review" for case in SHADOWED_BINDINGS), 13)
         for specialist, tier, lane, expected, previous in SHADOWED_BINDINGS:
             with self.subTest(specialist=specialist, tier=tier):
                 # An earlier matching tier must not shadow the explicit one.
@@ -224,7 +270,7 @@ class ExplicitRouteTierTests(unittest.TestCase):
                     if legacy_id != profile_id:
                         divergences.append((row["specialist"], tier, lane, profile_id, legacy_id))
                         model_changes += legacy["model_id"] != expected["model_id"]
-        self.assertEqual((len(rows), count, model_changes), (71, 285, 25))
+        self.assertEqual((len(rows), count, model_changes), (71, 285, 27))
         self.assertEqual(divergences, list(SHADOWED_BINDINGS))
 
     @staticmethod
@@ -749,7 +795,6 @@ class DispatchContextBuilderTests(unittest.TestCase):
                     "kimi.k2.7.bulk",
                     "kimi.k3.256k",
                     "kimi.k3.high",
-                    "kimi.k3.max",
                 },
             },
         )
@@ -2657,11 +2702,11 @@ class CandidateHealthCausationTests(unittest.TestCase):
         )
         return root, verifier
 
-    def _verify(self, root: Path, verifier: Path, *write_paths: str) -> None:
+    def _verify(self, root: Path, verifier: Path, *write_paths: str) -> dict[str, object]:
         with mock.patch.object(dcb, "RESIDUE_HEALTH_VERIFIER", verifier), mock.patch.dict(
             os.environ, {"SQUAD_BASE_BRANCH": "v2"}, clear=False
         ):
-            dcb._verify_candidate_tree_health(root, write_paths, ())
+            return dcb._verify_candidate_tree_health(root, write_paths, ())
 
     def test_inherited_failure_does_not_block_unrelated_diff(self) -> None:
         """A diagnostic present at BASE is warned, not denied."""
@@ -2673,9 +2718,58 @@ class CandidateHealthCausationTests(unittest.TestCase):
             (root / "unrelated.txt").write_text("candidate\n", encoding="utf-8")
 
             with mock.patch("sys.stderr") as stderr:
-                self._verify(root, verifier, "unrelated.txt")
+                health = self._verify(root, verifier, "unrelated.txt")
 
             self.assertTrue(stderr.write.called)
+            self.assertEqual(health["status"], "inherited_failure")
+            self.assertEqual(health["candidate_exit"], 1)
+            self.assertEqual(health["base_exit"], 1)
+
+    def _bridge(self, root: Path, verifier: Path, base_branch: str) -> dict[str, object]:
+        fixture = AliasedOutputBridgeTests
+        response = root / fixture.OUTBOX_RELATIVE
+        response.parent.mkdir(parents=True, exist_ok=True)
+        response.write_text(fixture._raw_response_text(), encoding="utf-8")
+        destination = root.parent / "main"
+        destination.mkdir()
+        authority = fixture._authority()
+        authority["write_paths"].append("introduced.txt")
+        with mock.patch.object(dcb, "RESIDUE_HEALTH_VERIFIER", verifier), mock.patch.dict(
+            os.environ, {"SQUAD_BASE_BRANCH": base_branch}, clear=False
+        ):
+            return dcb.bridge_worktree_outputs(destination, root, authority)
+
+    def test_unmeasured_base_is_recorded_in_published_receipt(self) -> None:
+        for branch, reason in (("", "SQUAD_BASE_BRANCH is unavailable"),
+                               ("absent", "cannot derive admitted merge-base")):
+            with self.subTest(branch=branch), tempfile.TemporaryDirectory() as directory:
+                root, verifier = self._repo(directory, existing="green", introduced="green")
+                (root / "introduced.txt").write_text("red\n", encoding="utf-8")
+                with mock.patch("sys.stderr") as stderr:
+                    receipt = self._bridge(root, verifier, branch)
+                health = receipt["candidate_tree_health"]
+                self.assertEqual(health["status"], "fail_open")
+                self.assertIn(reason, health["reason"])
+                self.assertEqual(health["candidate_exit"], 1)
+                self.assertIsNone(health["base_exit"])
+                self.assertTrue(receipt["envelope_published"])
+                self.assertIn("could not be compared", "".join(
+                    str(call.args[0]) for call in stderr.write.call_args_list))
+
+    def test_healthy_candidate_has_passed_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, verifier = self._repo(directory, existing="green", introduced="green")
+            receipt = self._bridge(root, verifier, "v2")
+            self.assertEqual(receipt["candidate_tree_health"], {
+                "status": "passed", "candidate_exit": 0})
+
+    def test_measured_new_failure_prevents_publication(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root, verifier = self._repo(directory, existing="green", introduced="green")
+            (root / "introduced.txt").write_text("red\n", encoding="utf-8")
+            with self.assertRaisesRegex(dcb.DispatchContextError, "exit=1 output=introduced.txt: FAIL"):
+                self._bridge(root, verifier, "v2")
+            self.assertFalse((root.parent / "main" / AliasedOutputBridgeTests.OUTBOX_RELATIVE).exists())
 
     def test_new_failure_blocks_when_base_is_healthy(self) -> None:
         """A candidate-only diagnostic still blocks residue promotion."""

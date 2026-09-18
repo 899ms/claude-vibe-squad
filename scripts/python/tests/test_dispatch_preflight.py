@@ -524,6 +524,7 @@ class DispatchOverrideTests(unittest.TestCase):
         specialist: str = "backend-engineer",
         write_scope: str | None = None,
         delete_paths: str | None = None,
+        namespace: str = "coding",
     ) -> subprocess.CompletedProcess[str]:
         environment = {
             "PATH": f"{self.repo / 'bin'}:{Path(sys.executable).parent}:/usr/bin:/bin:/usr/sbin:/sbin",
@@ -542,12 +543,13 @@ class DispatchOverrideTests(unittest.TestCase):
         if delete_paths is not None:
             environment["AUTHORIZED_DELETE_PATHS"] = delete_paths
         arguments = ["/bin/bash", str(ROOT / "scripts/send-task.sh"),
-                     "coding", str(self.body), specialist]
+                     namespace, str(self.body), specialist]
         if to_model is not None:
             arguments.append(to_model)
         return subprocess.run(
             [*arguments, "--mode", "modeless"], env=environment,
-            capture_output=True, text=True, timeout=10, check=False,
+            capture_output=True, encoding="utf-8", errors="surrogateescape",
+            timeout=10, check=False,
         )
 
     def _captured_packet(self, result: subprocess.CompletedProcess[str]) -> str:
@@ -715,6 +717,144 @@ class DispatchOverrideTests(unittest.TestCase):
                 fields, _ = preflight.context_builder._parse_task_text(packet)
                 self.assertEqual(len(fields), 29)
                 self.assertEqual(fields["model_override_reason"], reason)
+
+    def _runtime_rows(self) -> list[dict[str, str]]:
+        with (ROOT / "shared/specialist-runtime-map.tsv").open(
+            encoding="utf-8", newline=""
+        ) as stream:
+            return list(csv.DictReader(stream, delimiter="\t"))
+
+    def _set_runtime_fields(self, **updates: str) -> None:
+        rows = self._runtime_rows()
+        for row in rows:
+            if row["specialist"] == "backend-engineer":
+                row.update(updates)
+        with (self.repo / "shared/specialist-runtime-map.tsv").open(
+            "w", encoding="utf-8", newline=""
+        ) as stream:
+            writer = csv.DictWriter(stream, fieldnames=list(rows[0]), delimiter="\t")
+            writer.writeheader()
+            writer.writerows(rows)
+
+    def _assert_before_staging_refusal(
+        self, result: subprocess.CompletedProcess[str], *messages: str
+    ) -> None:
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        for message in messages:
+            self.assertIn(message, result.stdout + result.stderr)
+        self.assertNotIn("PACKET_BEGIN", result.stdout)
+        self.assertFalse((self.repo / "staging-attempted").exists())
+        self.assertEqual(list(self.repo.glob("squad-task.*")), [])
+
+    def test_wrapper_validates_namespace_after_lookup(self) -> None:
+        # The caller namespace already passes its allowlist. A map lookup must
+        # not replace it with an unchecked source namespace before emission.
+        self._set_runtime_fields(source_namespace="unknown-namespace")
+        self._assert_before_staging_refusal(
+            self._wrapper(to_model=None, triggers="[]"),
+            "SOURCE_NAMESPACE", "unknown-namespace",
+        )
+        self._set_runtime_fields()
+        self._assert_before_staging_refusal(
+            self._wrapper(namespace="unknown-namespace", triggers="[]"),
+            "compatibility namespace", "unknown-namespace",
+        )
+
+        # Derive the positive controls from both real inventories. In particular,
+        # shared is a valid role source even though it is not a mailbox namespace.
+        inventory = subprocess.run(
+            ["/bin/bash", "-c", 'source "$1"; printf "%s\\n" "${COMPATIBILITY_NAMESPACES[@]}"',
+             "namespaces", str(ROOT / "shared/namespaces.sh")],
+            capture_output=True, text=True, check=True,
+        )
+        namespaces = inventory.stdout.splitlines()
+        self.assertTrue(namespaces)
+        for row in self._runtime_rows():
+            for namespace in namespaces:
+                with self.subTest(specialist=row["specialist"], namespace=namespace):
+                    packet = self._captured_packet(self._wrapper(
+                        specialist=row["specialist"], namespace=namespace,
+                        to_model=None, reason=None, triggers="[]",
+                    ))
+                    fields, _ = preflight.context_builder._parse_task_text(packet)
+                    self.assertEqual(fields["source_namespace"], row["source_namespace"])
+                    self.assertEqual(fields["compatibility_namespace"], "coding")
+                    self.assertEqual(fields["specialist"], row["specialist"])
+                    self.assertEqual(fields["to_model"],
+                                     "gpt-codex" if row["primary_lane"] == "codex"
+                                     else row["primary_lane"])
+
+    def test_wrapper_validates_model_after_lookup(self) -> None:
+        for lane in ("unknown-lane", "none", "claude ", r"clau\de"):
+            self._assert_before_staging_refusal(
+                self._wrapper(to_model=lane, triggers="[]"), "TO_MODEL", lane,
+            )
+        # An inferred lane must hit the same guard as an explicit argument.
+        self._set_runtime_fields(primary_lane="unknown-lane")
+        self._assert_before_staging_refusal(
+            self._wrapper(to_model=None, triggers="[]"), "TO_MODEL", "unknown-lane",
+        )
+        self._set_runtime_fields()
+
+        rows = self._runtime_rows()
+        lanes = {value for row in rows for field, value in row.items()
+                 if field.endswith("_lane") and value not in ("", "none")}
+        self.assertTrue(lanes)
+        if "codex" in lanes:
+            lanes.add("gpt-codex")
+        for row in rows:
+            for lane in sorted(lanes):
+                with self.subTest(specialist=row["specialist"], lane=lane):
+                    packet = self._captured_packet(self._wrapper(
+                        specialist=row["specialist"], to_model=lane, triggers="[]",
+                    ))
+                    fields, _ = preflight.context_builder._parse_task_text(packet)
+                    self.assertEqual(fields["to_model"],
+                                     "gpt-codex" if lane == "codex" else lane)
+                    self.assertEqual(fields["source_namespace"], row["source_namespace"])
+
+    def _assert_wrapper_utf8(self, parameter: str, variable: str) -> None:
+        ordinary = {
+            "specialist": "backend-engineer", "to_model": "claude",
+            "reason": "Primary café 不可用 — занято 🛠️ e\u0301 �.",
+            "write_scope": "docs/café.md, docs/不可用.md",
+            "delete_paths": '"docs/занято.md"', "triggers": "[architecture]",
+        }
+        # Exercise malformed bytes through the OS argument/environment boundary.
+        # surrogateescape preserves the original bytes for subprocess; UTF-8
+        # decoding with replacement would silently change these values.
+        for raw in (b"\xff", b"\xc3(", b"\xed\xa0\x80"):
+            value = "value-" + raw.decode("utf-8", "surrogateescape")
+            self._assert_before_staging_refusal(
+                self._wrapper(review_model="gpt-codex", **{**ordinary, parameter: value}),
+                variable, "UTF-8", "without loss",
+            )
+        packet = self._captured_packet(self._wrapper(review_model="gpt-codex", **ordinary))
+        fields, _ = preflight.context_builder._parse_task_text(packet)
+        self.assertEqual(fields["model_override_reason"], ordinary["reason"])
+        self.assertEqual(fields["write_scope"],
+                         f'[{fields["return_artifact"]}, {ordinary["write_scope"]}]')
+        self.assertEqual(fields["authorized_delete_paths"], f'[{ordinary["delete_paths"]}]')
+        self.assertEqual(self._guards(fields).returncode, 0)
+        self.assertEqual(self._preflight(packet)[0], 0)
+
+    def test_wrapper_specialist_requires_lossless_utf8(self) -> None:
+        self._assert_wrapper_utf8("specialist", "SPECIALIST")
+
+    def test_wrapper_model_requires_lossless_utf8(self) -> None:
+        self._assert_wrapper_utf8("to_model", "TO_MODEL")
+
+    def test_wrapper_override_reason_requires_lossless_utf8(self) -> None:
+        self._assert_wrapper_utf8("reason", "MODEL_OVERRIDE_REASON")
+
+    def test_wrapper_write_scope_requires_lossless_utf8(self) -> None:
+        self._assert_wrapper_utf8("write_scope", "WRITE_SCOPE")
+
+    def test_wrapper_delete_paths_require_lossless_utf8(self) -> None:
+        self._assert_wrapper_utf8("delete_paths", "AUTHORIZED_DELETE_PATHS")
+
+    def test_wrapper_review_triggers_require_lossless_utf8(self) -> None:
+        self._assert_wrapper_utf8("triggers", "REVIEW_TRIGGERS")
 
     NON_EXPLANATORY_REASONS = (
         "...", "—?!", '"..."', "[ ]", "⚠️", "nоnе", "попе", "ΝΟΝΕ",
@@ -957,6 +1097,129 @@ class DispatchOverrideTests(unittest.TestCase):
         self.assertEqual(fields["model_override_reason"], "none")
         self.assertEqual(self._guards(fields).returncode, 64)
         self.assertEqual(self._preflight(packet)[0], 3)
+
+
+class DispatchGuardObservabilityTests(unittest.TestCase):
+    """Exercise sender guards verbatim without admission or task dispatch."""
+
+    def setUp(self) -> None:
+        temporary = tempfile.TemporaryDirectory(prefix="dispatch-guards-")
+        self.addCleanup(temporary.cleanup)
+        self.repo = Path(temporary.name)
+        self.sender = (ROOT / "bin/send-task.sh").read_text(encoding="utf-8")
+        self.registry = self.repo / "active-tasks.json"
+        self.packet = self.repo / "task.md"
+
+    def _run(self, script: str) -> subprocess.CompletedProcess[str]:
+        environment = {
+            "PATH": f"{Path(sys.executable).parent}:{os.defpath}",
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "VAULT_ROOT": str(self.repo),
+            "ACTIVE_REGISTRY": str(self.registry),
+            "TASK_FILE": str(self.packet),
+            "TASK_ID": "TASK-guard-test",
+            "WRITE_SCOPE_JSON": '["src/service.py"]',
+        }
+        return subprocess.run(
+            ["/bin/bash", "-c", 'set -euo pipefail\n'
+             'die() { printf "%s\\n" "$*" >&2; exit 1; }\n'
+             'info() { printf "%s\\n" "$*"; }\n' + script],
+            env=environment, capture_output=True, text=True, timeout=10,
+            check=False,
+        )
+
+    def _conflicts(self) -> subprocess.CompletedProcess[str]:
+        start = self.sender.index('if [[ "$WRITE_SCOPE_JSON" != "[]"')
+        end = self.sender.index('\nassemble_dispatch_packet', start)
+        return self._run(self.sender[start:end])
+
+    def _promotion(self) -> subprocess.CompletedProcess[str]:
+        start = self.sender.index('validate_unpromoted_write_scope() {')
+        end = self.sender.index('\n# Warn before low disk', start)
+        return self._run(self.sender[start:end] + '\nvalidate_unpromoted_write_scope')
+
+    def _capabilities(self) -> subprocess.CompletedProcess[str]:
+        start = self.sender.index('validate_task_capabilities() {')
+        end = self.sender.index('\n# ── sub-command:', start)
+        return self._run(self.sender[start:end] + '\nvalidate_task_capabilities "$TASK_FILE" gpt-codex')
+
+    def test_absent_registry_bootstraps_only_when_nothing_has_dispatched(self) -> None:
+        # A never-dispatched checkout has no descriptors either, so an absent
+        # registry there genuinely measures zero in-flight tasks. Refusing it
+        # would deadlock the first dispatch on a fresh clone.
+        result = self._conflicts()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("first dispatch on this checkout", result.stdout)
+
+        # Registry lost while prior dispatches exist is the dangerous case and
+        # must still refuse loudly: in-flight scopes are genuinely unmeasured.
+        self.registry.unlink()
+        descriptors = self.registry.parent / "board-dispatch"
+        descriptors.mkdir(parents=True, exist_ok=True)
+        (descriptors / "prior.json").write_text("{}", encoding="utf-8")
+        result = self._conflicts()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("UNMEASURED", result.stderr)
+        self.assertNotIn("no conflicts", result.stdout)
+
+        # Control: a present, empty registry passes and says so.
+        self.registry.write_text("{}", encoding="utf-8")
+        result = self._conflicts()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("write_scope: no conflicts", result.stdout)
+
+    def test_corrupt_registry_reports_parse_error_not_scope_conflict(self) -> None:
+        self.registry.write_text("{broken", encoding="utf-8")
+        result = self._conflicts()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("registry read failed", result.stderr)
+        self.assertIn("JSONDecodeError", result.stderr)
+        self.assertNotIn("Resolve in-flight tasks", result.stderr)
+        self.registry.write_text(json.dumps({"other": {
+            "status": "in-flight", "write_scope": ["src/"]}}), encoding="utf-8")
+        result = self._conflicts()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("CONFLICT: src/service.py overlaps other scope src/", result.stderr)
+        self.assertIn("Resolve in-flight tasks", result.stderr)
+
+    def test_invalid_registry_shapes_report_schema_error(self) -> None:
+        for registry in ([], {"other": None}, {"other": {
+            "status": "in-flight", "write_scope": "src/"}}):
+            with self.subTest(registry=registry):
+                self.registry.write_text(json.dumps(registry), encoding="utf-8")
+                result = self._conflicts()
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("registry schema invalid", result.stderr)
+
+    def test_body_evidence_declaration_cannot_promote_ignored_scope(self) -> None:
+        subprocess.run(["git", "init", "-q", str(self.repo)], check=True)
+        (self.repo / ".gitignore").write_text("ignored/\n", encoding="utf-8")
+        frontmatter = "---\nreturn_artifact: result.md\nwrite_scope: [result.md, ignored/proof.md]\n"
+        self.packet.write_text(frontmatter + "---\n\nevidence_outputs: [ignored/proof.md]\n", encoding="utf-8")
+        result = self._promotion()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("undeclared git-ignored write_scope", result.stderr)
+        self.packet.write_text(frontmatter + "evidence_outputs: [ignored/proof.md]\n---\n", encoding="utf-8")
+        result = self._promotion()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_missing_audit_warns_and_explicit_reference_still_refuses(self) -> None:
+        self.packet.write_text("Local code change.\n", encoding="utf-8")
+        result = self._capabilities()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("MCP tools/list audit unavailable", result.stderr)
+        self.assertIn("UNMEASURED", result.stderr)
+        self.packet.write_text("chrono-vault MCP tool recall\n", encoding="utf-8")
+        result = self._capabilities()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("unverified-mcp-server:chrono-vault", result.stderr)
+        logs = self.repo / "_state/audit-logs"
+        logs.mkdir(parents=True)
+        (logs / "2026-09-15-mcp-audit.md").write_text(
+            "- chrono-vault: verified tools=recall\n", encoding="utf-8")
+        result = self._capabilities()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("UNMEASURED", result.stderr)
 
 
 if __name__ == "__main__":

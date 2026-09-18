@@ -110,6 +110,13 @@ lead. The config uses four controller-owned local templates. `chrono-vault`,
 `sequential-thinking` uses the exact Homebrew executable. Missing or escaping
 dependencies deny the launch.
 
+These are supported transport templates, not an installation inventory. The public export
+withholds `chrono-dedup`; its source assignments are `needs-operator-install`, so it is absent
+from the generated direct and brokered MCP arrays. A private operator must separately provision
+and verify it before enabling a local assignment; see `README.md` and `THIRD_PARTY.md`.
+Its executable `provides` relations are empty until a usable assignment exists; the optional
+`prior_art_check` operation remains recorded as `needs-operator-install` in the source and index.
+
 Kimi never reads or copies host MCP configuration, commands, arguments, URLs,
 headers, arbitrary environment, or auth values. FastMCP's default subprocess
 environment omits the vault root and signed aperture context, so the
@@ -186,6 +193,15 @@ capability surface continues to record the same names as `brokered_mcps`.
 - Records the pinned baseline and policy SHA-256 so policy drift is visible.
 
 ## Commands and honesty-gate wiring
+
+`python3 -B model-lanes/check_public_plugin_capabilities.py` checks published MCP declarations
+against the export path policy, including source assignments, operation providers, hidden native
+adapters, lane inventories, generated plans, and runtime-map summaries. It rejects a server when
+its conventional `plugins/<server>/.claude-plugin/plugin.json` or `mcp_server.py` path is withheld;
+`lead:` aliases follow the same rule. It does not require private plugin files to be present.
+The public Python discovery suite runs this check from
+`scripts/python/tests/test_chrono_dedup_ssrf_security.py`, including controls for a differently
+named withheld component. History, templates, and explicitly unavailable assignments may remain.
 
 Generate the tracked index after an intentional adapter change:
 

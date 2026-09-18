@@ -460,9 +460,10 @@ fi
         if [[ -s "$content_error" ]]; then sed 's/^/- error: /' "$content_error"; fi
         echo ""
         echo "## Remote-advertised-ref audit"
-        echo "- Ledger precondition: ${remote_ref_ledger}"
         case "$remote_ref_state" in
-            ran-pass|ran-fail) echo "- Ran: yes" ;;
+            ran-pass|ran-fail)
+                echo "- Ledger precondition: ${remote_ref_ledger}"
+                echo "- Ran: yes" ;;
             *) echo "- Ran: NO (${remote_ref_state}) — the exit status below was not earned by an audit" ;;
         esac
         echo "- Exit status: ${remote_ref_status}"

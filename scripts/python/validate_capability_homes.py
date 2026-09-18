@@ -62,12 +62,25 @@ GEMINI_PROJECTION_KEYS = {
     "capability_source_sha256",
     *(f"capability_{field}" for field in CAPABILITY_FIELDS),
 }
-POLICY_RELATIVE = Path("model-lanes/adapter-capability-policy.json")
-INDEX_RELATIVE = Path("model-lanes/generated-specialist-capabilities.json")
-LANE_REGISTRY_RELATIVE = Path("model-lanes/lane-capabilities.tsv")
-RUNTIME_MAP_RELATIVE = Path("shared/specialist-runtime-map.tsv")
-API_CATALOG_RELATIVE = Path("shared/api-catalog.md")
-REGISTRY_RELATIVE = Path("shared/registries/skill-tool-registry.tsv")
+# Fixed repository inputs; briefs, adapters, installed skills, and baseline
+# history are discovered from these inputs and the runtime environment.
+INPUT_PATHS = (
+    "model-lanes/adapter-capability-policy.json",
+    "model-lanes/generated-specialist-capabilities.json",
+    "model-lanes/lane-capabilities.tsv",
+    "shared/specialist-runtime-map.tsv",
+    "shared/api-catalog.md",
+    "shared/registries/skill-tool-registry.tsv",
+    SOURCE_RELATIVE.as_posix(),
+)
+(
+    POLICY_RELATIVE,
+    INDEX_RELATIVE,
+    LANE_REGISTRY_RELATIVE,
+    RUNTIME_MAP_RELATIVE,
+    API_CATALOG_RELATIVE,
+    REGISTRY_RELATIVE,
+) = map(Path, INPUT_PATHS[:6])
 INDEX_SCHEMA = "specialist-adapter-capability-index/v2"
 
 

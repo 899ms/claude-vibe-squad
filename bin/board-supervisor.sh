@@ -2856,6 +2856,7 @@ def recover_validated_outputs_for_transport_failure():
             "main_artifact_path": bridge_receipt["artifact_path"],
             "main_artifact_sha256": bridge_receipt["artifact_sha256"],
             "artifact_promotions": bridge_receipt["artifact_promotions"],
+            "candidate_tree_health": bridge_receipt["candidate_tree_health"],
             "main_envelope_path": bridge_receipt["envelope_path"],
             "main_envelope_sha256": bridge_receipt["envelope_sha256"],
         }
@@ -3617,12 +3618,25 @@ try:
             + "\n```\n"
             + mcp_contract
         )
+        # agy's print mode carries its OWN deadline, default 5m0s, and when it
+        # fires it prints the partial turn and exits 0. The board cannot tell
+        # that from a finished turn, so it promotes the stub as a result. That
+        # silently capped this lane at five minutes while every other lane ran
+        # to the board's wall; measured four times across 2026-09-12..14.
+        #
+        # Give it a deadline comfortably PAST the board's own wall so it can
+        # never be the one to fire. The board's wall then always wins, and a
+        # lane that runs long fails loudly as a timeout instead of quietly
+        # returning half a document.
+        agy_print_timeout = f"{int(launch_timeout) + 120}s"
         agy_command = (
             str(executable),
             *tuple(authority["lane_args"]),
             *directory_args,
             "--output-format",
             "text",
+            "--print-timeout",
+            agy_print_timeout,
             "--print",
             concise_prompt,
         )
@@ -3885,6 +3899,29 @@ try:
             cli_stderr=completed.stderr or "",
             controller_quarantine=controller_quarantine,
         )
+    # A truncated agy turn exits ZERO. The lane's own deadline is now derived
+    # from the board's wall so agy's timer cannot fire first, but nothing about
+    # returncode 0 distinguishes half a document from a finished one -- which is
+    # precisely why four gemini dispatches over 2026-09-12..14 were promoted as
+    # results and nobody noticed for three days.
+    #
+    # agy prints this line, and only this line, when it abandons a running turn.
+    # A positive control confirms the discriminator: a turn that completes emits
+    # it zero times. Anchored at line start and scoped to this lane so a worker
+    # QUOTING the marker in prose -- a reviewer of this very change, say -- is
+    # not mistaken for a truncation.
+    if execution_kind == "lane" and lane == "gemini":
+        for stream in (completed.stdout or "", completed.stderr or ""):
+            for transcript_line in stream.splitlines():
+                if transcript_line.startswith("[agy] print timeout after"):
+                    block_after_provision(
+                        "gemini lane turn was truncated by agy's print deadline "
+                        f"and returned partial output: {transcript_line.strip()}",
+                        failure_class="timeout",
+                        returncode=completed.returncode,
+                        cli_stdout=completed.stdout or "",
+                        cli_stderr=completed.stderr or "",
+                    )
     observed_memory_ids = set()
 
     def inspect_memory_event(value, *, in_record=False):
@@ -4060,6 +4097,7 @@ try:
             "main_envelope_path": bridge_receipt["envelope_path"],
             "main_envelope_sha256": bridge_receipt["envelope_sha256"],
             "response_status": bridge_receipt["status"],
+            "candidate_tree_health": bridge_receipt["candidate_tree_health"],
             "worktree_integration": asdict(integration_receipt),
         })
         if bridge_receipt.get("mode_exit_verification") is not None:

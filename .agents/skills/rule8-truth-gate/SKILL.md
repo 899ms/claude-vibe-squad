@@ -75,7 +75,7 @@ rule8_truth_gate:
 
 ## Notes — source boundary + cross-lane home
 - **Partial fusion:** this gate owns the aggregate S4 release decision and citation-recency policy from
-  `shared/skills/claim-verification.md` + `shared/skills/citation-audit.md`. It does not emit the exact evidence
+  the `claim-verification` skill + the retired `citation-audit` skill. It does not emit the exact evidence
   span and `supported | unsupported | unverifiable` verdict for every individual statement; invoke
   `claim-verification` when that statement-level adjudication is required.
 - **Canonical home:** `.claude/skills/rule8-truth-gate/SKILL.md`. Because its audience is `specialist`,

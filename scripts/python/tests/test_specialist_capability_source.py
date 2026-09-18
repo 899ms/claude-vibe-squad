@@ -203,6 +203,10 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
             )
         self.assertIn("runtime-tool-summary", {issue["check"] for issue in issues})
 
+    @unittest.skipUnless(
+        (ROOT / "shared/registries/skill-tool-registry.tsv").is_file(),
+        "private integration: provider closure requires the withheld skill-tool registry",
+    )
     def test_validator_fails_closed_when_provider_registry_record_is_missing(self) -> None:
         entries, _payload = load_source(ROOT)
         rows = validator.runtime_rows(ROOT)
@@ -280,6 +284,10 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
             ("chrome-devtools", "playwright"),
         )
 
+    @unittest.skipUnless(
+        (ROOT / "shared/registries/skill-tool-registry.tsv").is_file(),
+        "private integration: authored skill registration requires the withheld skill-tool registry",
+    )
     def test_security_capability_skills_are_active_authored_and_registered(self) -> None:
         expected = {
             "detection-as-code",
@@ -406,34 +414,57 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
         )
 
         for specialist in (
+            "experimental-attacker",
             "exploit-developer",
             "security-analyst",
             "smart-contract-engineer",
         ):
             for lane in ("claude", "gpt-codex"):
                 refs = {
-                    ref.identifier: ref.availability
+                    ref.identifier: (ref.availability, ref.evidence)
                     for ref in entries[(specialist, lane)]["mcps"]
                     if ref.identifier.startswith("guarded-")
                 }
                 self.assertEqual(
                     refs,
                     {
-                        "guarded-semgrep": "available",
-                        "guarded-slither": "available",
-                        "guarded-solodit": "available",
+                        identifier: (
+                            "needs-operator-install", "operator-install-required"
+                        )
+                        for identifier in (
+                            "guarded-semgrep", "guarded-slither", "guarded-solodit"
+                        )
                     },
                 )
+                projected = available_arrays(entries, specialist, lane)["mcps"]
+                self.assertIn("chrono-vault", projected)
                 self.assertTrue(
-                    set(refs).issubset(
-                        available_arrays(entries, specialist, lane)["mcps"]
-                    )
+                    set(refs).isdisjoint(projected),
+                    f"{specialist}:{lane}: guarded MCPs require operator installation",
                 )
 
         self.assertNotIn(
             "playwright",
             available_arrays(entries, "frontend-engineer", "gpt-codex")["tools"],
         )
+
+    def test_scraping_browser_is_a_required_mcp_on_claude_and_codex(self) -> None:
+        entries, _payload = load_source(ROOT)
+        for lane in ("claude", "gpt-codex"):
+            entry = entries[("scraping-engineer", lane)]
+            browser = next(
+                ref for ref in entry["mcps"] if ref.identifier == "chrome-devtools"
+            )
+            self.assertEqual(
+                browser,
+                CapabilityRef(
+                    "chrome-devtools", "required", "available", "lane-inventory"
+                ),
+            )
+            projected = available_arrays(entries, "scraping-engineer", lane)
+            self.assertIn("chrome-devtools", projected["mcps"])
+            self.assertNotIn("chrome-devtools", projected["tools"])
+        self.assertEqual(entries[("scraping-engineer", "gpt-codex")]["coverage"], "full")
 
 
 if __name__ == "__main__":

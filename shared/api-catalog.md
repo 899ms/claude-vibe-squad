@@ -966,7 +966,7 @@ Per-pane verification matrix for each chrono-* family MCP. Claude pane verificat
 - specialists: frontend-engineer, devops-engineer
 - verified: yes for the Codex-session list plane only
 - last_checked: 2026-07-21
-- test_reference: current `mcp__codex_apps__sites_list_sites(limit=1)` returned `isError:false` with an empty authenticated result
+- test_reference: bounded read-only list-plane call; linked-account results are operator-local evidence and are not recorded in the public catalog
 - notes: No resource existed to prove get/read, and no create/save/deploy mutation was attempted. Public deployment remains behind `public_release` and `production_mutation` gates; the list-plane receipt does not authorize it.
 
 ### chrono-recon MCP

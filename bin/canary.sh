@@ -53,8 +53,18 @@
 #   bin/canary.sh --mcp-task TASK-ID   adjudicate Codex MCP evidence (may combine)
 #   bin/canary.sh --emit-packet ID     print the transport/skills packet
 #   bin/canary.sh --emit-mcp-packet ID print the Codex MCP-surface packet
+#   bin/canary.sh --emit-mcp-expectation-example print placeholder local JSON
 #   bin/canary.sh --self-test          inverted controls (no live writes)
 #   bin/canary.sh --no-memory-write    skip probe 4's one vault note
+#
+# MCP EXPECTATION (operator-local; never an observed host answer in this file)
+#   CANARY_MCP_EXPECTED_JSON takes precedence, even when empty or invalid.
+#   Otherwise read CANARY_MCP_EXPECTED_FILE, defaulting to the gitignored
+#   <root-under-test>/_state/canary-mcp-expected.json. An external path is allowed.
+#   Supply a sorted, unique, non-empty JSON array of runtime namespace prefixes.
+#   Generate yours: map the selected role/lane projection to runtime prefixes,
+#   sort/deduplicate, and save that JSON locally before measuring the worker.
+#   Never derive the expectation from the observed report being adjudicated.
 #
 # EXIT CODES
 #   0  every probe PASS
@@ -76,23 +86,26 @@ source "$(cd -- "$(dirname -- "$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null 
 # longer see any.
 CANARY_ROOT="${CANARY_ROOT_UNDER_TEST:-${VAULT_ROOT}}"
 
-# The vault venv, not system python3: notes/recall need the plugin's deps.
-CHRONO_PY="${CHRONO_PY:-${VAULT_ROOT}/.venv/bin/python}"
+# Prefer the vault venv for plugin dependencies; evidence parsing and fixtures
+# need only the standard library. An explicit interpreter override is honored.
+if [[ -z "${CHRONO_PY+x}" ]]; then
+    CHRONO_PY="${VAULT_ROOT}/.venv/bin/python"
+    [[ -x "${CHRONO_PY}" ]] || CHRONO_PY="$(command -v python3 || true)"
+fi
 
 # The oracle for probe 3. It is deliberately a phrase the lane can only produce
-# by READING .claude/skills/probe-canary/SKILL.md, and it is deliberately
+# by READING the dispatched lane's probe-canary/SKILL.md, and it is deliberately
 # absent from the packet this program emits -- a packet that quoted it would
 # let a lane echo it back without ever firing the skill, which is precisely the
 # projected-versus-fired distinction the probe exists to draw.
 SKILL_SENTINEL='project-scoped skill loading works'
+# These are intentionally different load-path canaries, not identity mirrors.
+# model-lanes/SKILL-HOMES.md owns the lane -> skill-home decision.
+AGENTS_SKILL_SENTINEL='You reached this file.'
 
-# Exact runtime MCP namespaces established by the systems-engineer@gpt-codex
-# board probe documented in docs/board-mcp-surface.md. This is deliberately
-# absent from the emitted packet: a worker must enumerate its live tool surface,
-# not echo the expected answer. Any addition, removal, or failed bounded call is
-# FAIL until the canonical document and this executable expectation are reviewed
-# together.
-MCP_SURFACE_EXPECTED_JSON='["chrono_research_arsenal","chrono_vault","codex_apps","sequential_thinking"]'
+# Expectations are loaded by the evidence parser from operator-local input.
+# They are deliberately absent from emitted packets: the worker must enumerate
+# its live surface independently. Fixture expectations live only in self-test.
 MCP_SURFACE_MARKER='MCP_SURFACE_JSON:'
 
 TASK_ID=""
@@ -101,9 +114,19 @@ SELF_TEST=0
 MEMORY_WRITE=1
 EMIT_PACKET_ID=""
 EMIT_MCP_PACKET_ID=""
+EMIT_MCP_EXPECTATION_EXAMPLE=0
 
 usage() {
-    printf 'usage: canary.sh [--task TASK-ID] [--mcp-task TASK-ID] [--emit-packet ID | --emit-mcp-packet ID] [--self-test] [--no-memory-write]\n'
+    cat <<'USAGE_EOF'
+usage: canary.sh [--task TASK-ID] [--mcp-task TASK-ID] [--emit-packet ID | --emit-mcp-packet ID | --emit-mcp-expectation-example] [--self-test] [--no-memory-write]
+
+MCP expectation: CANARY_MCP_EXPECTED_JSON, otherwise CANARY_MCP_EXPECTED_FILE
+(default: <root-under-test>/_state/canary-mcp-expected.json, gitignored).
+Example: ["example_alpha","example_beta"] (placeholders, not a measured surface).
+Generate yours: map your selected role/lane projection to runtime prefixes, sort/deduplicate, and save the JSON locally before running --mcp-task.
+Use --emit-mcp-expectation-example to print an editable example; missing or
+invalid configuration reports NOT MEASURED. Keep actual expectations private.
+USAGE_EOF
 }
 
 while [[ "$#" -gt 0 ]]; do
@@ -129,6 +152,7 @@ while [[ "$#" -gt 0 ]]; do
             shift 2
             ;;
         --self-test)     SELF_TEST=1; shift ;;
+        --emit-mcp-expectation-example) EMIT_MCP_EXPECTATION_EXAMPLE=1; shift ;;
         --no-memory-write) MEMORY_WRITE=0; shift ;;
         --help|-h)       usage; exit 0 ;;
         *)
@@ -141,7 +165,8 @@ while [[ "$#" -gt 0 ]]; do
     esac
 done
 
-if [[ -n "${EMIT_PACKET_ID}" && -n "${EMIT_MCP_PACKET_ID}" ]]; then
+if [[ -n "${EMIT_PACKET_ID}" && -n "${EMIT_MCP_PACKET_ID}" ]] ||
+   { (( EMIT_MCP_EXPECTATION_EXAMPLE )) && [[ -n "${EMIT_PACKET_ID}${EMIT_MCP_PACKET_ID}" ]]; }; then
     printf 'canary.sh: choose only one packet emitter\n' >&2
     usage >&2
     exit 64
@@ -164,13 +189,31 @@ route() {  # route <probe> <STATUS> <detail>
 # --- The packet Chrono dispatches -------------------------------------------
 # Printed, never written: this program's write scope does not include an inbox,
 # and Chrono owns dispatch. Redirect it into departments/coding/inbox/<id>.md.
+packet_model() {
+    "${CHRONO_PY}" -B - "${VAULT_ROOT}/shared/specialist-runtime-map.tsv" "$1" <<'PY'
+import csv
+import sys
+
+with open(sys.argv[1], encoding="utf-8", newline="") as handle:
+    rows = [row for row in csv.DictReader(handle, delimiter="\t")
+            if row["specialist"] == sys.argv[2]]
+if len(rows) != 1 or rows[0]["primary_lane"] not in {
+    "codex", "claude", "gemini", "kimi", "grok"
+}:
+    raise SystemExit("canary.sh: specialist has no unique supported primary lane")
+lane = rows[0]["primary_lane"]
+print("gpt-codex" if lane == "codex" else lane)
+PY
+}
+
 emit_packet() {
-    local id="$1"
+    local id="$1" model
+    model="$(packet_model backend-engineer)" || return 2
     cat <<PACKET_EOF
 ---
 id: ${id}
 run_id: ${id}
-to_model: claude
+to_model: ${model}
 specialist: backend-engineer
 source_namespace: coding
 mode: project
@@ -178,6 +221,7 @@ memory_aperture: default
 parallel_safe: true
 direct_lane_work_allowed: true
 review_triggers: []
+reviews: none
 return_artifact: departments/coding/outbox/${id}-response.md
 write_scope: ["departments/coding/outbox/${id}-response.md"]
 ---
@@ -188,10 +232,12 @@ Do exactly three things and nothing else. This packet is deliberately trivial:
 it measures the transport, not the work.
 
 1. Run \`git rev-parse --short HEAD\` and paste the literal output.
-2. Invoke the project skill named \`probe-canary\`. Quote, **verbatim**, the
-   bolded claim its first sentence makes about what reaching that file proves.
-   Do not paraphrase it and do not reconstruct it from memory -- the exact
-   wording is the measurement.
+2. Invoke the project skill named \`probe-canary\` through this worker's runtime
+   skill mechanism. Report the literal invocation, the resolved base directory,
+   and whether its name resolved bare or required a prefix. Quote, **verbatim**,
+   the first prose paragraph after its heading (excluding frontmatter).
+   Do not paraphrase it or reconstruct it from memory -- the exact wording is
+   the measurement. Use the copy this runtime resolves.
 3. Write your response envelope to the return_artifact path above.
 
 If the skill does not resolve, say so and paste the literal error. An absent
@@ -200,7 +246,12 @@ PACKET_EOF
 }
 
 emit_mcp_packet() {
-    local id="$1"
+    local id="$1" model
+    model="$(packet_model systems-engineer)" || return 2
+    if [[ "${model}" != gpt-codex ]]; then
+        printf 'canary.sh: systems-engineer no longer maps to the Codex MCP oracle\n' >&2
+        return 2
+    fi
     cat <<PACKET_EOF
 ---
 id: ${id}
@@ -213,6 +264,7 @@ memory_aperture: default
 parallel_safe: true
 direct_lane_work_allowed: true
 review_triggers: []
+reviews: none
 return_artifact: departments/coding/outbox/${id}-response.md
 write_scope: ["departments/coding/outbox/${id}-response.md"]
 ---
@@ -228,14 +280,15 @@ the systems-engineer@gpt-codex board worker.
    not this worker's callable surface. If the runtime provides \`ALL_TOOLS\`,
    enumerate names beginning \`mcp__\`, extract the component between the first
    two \`__\` separators, deduplicate, and sort. Otherwise use the runtime's
-   equivalent live tool-manifest operation. Also enumerate every complete tool
-   name beginning \`mcp__codex_apps__\`; the bridge name alone is not a surface
-   measurement. Make one bounded read-only call to every namespace found. Paste
+   equivalent live tool-manifest operation. Also enumerate every complete MCP
+   tool name in \`tool_names\`; each namespace must have at least one tool and
+   every tool's namespace must be in \`server_prefixes\`. Make one authorized,
+   bounded read-only call to every namespace found. Paste
    the literal inventory command/expression and literal output, then emit exactly
    one single-line record with sorted unique arrays (a prefix belongs in
    \`successful_probes\` only after a non-error call):
 
-   \`MCP_SURFACE_JSON: {"codex_apps_tools":["mcp__codex_apps__<tool>"],"inventory_command":"<literal command or expression>","server_prefixes":["<runtime prefix>"],"successful_probes":["<runtime prefix>"]}\`
+   \`MCP_SURFACE_JSON: {"inventory_command":"<literal command or expression>","server_prefixes":["<runtime prefix>"],"successful_probes":["<runtime prefix>"],"tool_names":["mcp__<runtime prefix>__<tool>"]}\`
 
 2. Write your response envelope to the return_artifact path above.
 PACKET_EOF
@@ -243,10 +296,14 @@ PACKET_EOF
 
 if [[ -n "${EMIT_PACKET_ID}" ]]; then
     emit_packet "${EMIT_PACKET_ID}"
-    exit 0
+    exit $?
 fi
 if [[ -n "${EMIT_MCP_PACKET_ID}" ]]; then
     emit_mcp_packet "${EMIT_MCP_PACKET_ID}"
+    exit $?
+fi
+if (( EMIT_MCP_EXPECTATION_EXAMPLE )); then
+    printf '%s\n' '["example_alpha","example_beta"]'
     exit 0
 fi
 
@@ -255,13 +312,20 @@ fi
 # registry is multi-megabyte, so it is loaded once and every probe reads that
 # one parse.
 run_evidence_probes() {
+    if [[ ! -x "${CHRONO_PY}" ]]; then
+        local probe
+        for probe in dispatch round_trip skills labelling mcp_surface; do
+            printf '%s|NOT_MEASURED|no canary interpreter at %s\n' "${probe}" "${CHRONO_PY}"
+        done
+        return
+    fi
     CANARY_ROOT="${CANARY_ROOT}" \
     CANARY_TASK="${TASK_ID}" \
     CANARY_MCP_TASK="${MCP_TASK_ID}" \
     CANARY_SENTINEL="${SKILL_SENTINEL}" \
-    CANARY_MCP_EXPECTED_JSON="${MCP_SURFACE_EXPECTED_JSON}" \
+    CANARY_AGENTS_SENTINEL="${AGENTS_SKILL_SENTINEL}" \
     CANARY_MCP_MARKER="${MCP_SURFACE_MARKER}" \
-    python3 -B - <<'PY'
+    "${CHRONO_PY}" -B - <<'PY'
 import json
 import os
 import re
@@ -311,7 +375,7 @@ def artifact_present(entry):
         return True, declared
     return False, declared
 
-def persisted_task_prompt(entry, tid):
+def persisted_task_context(entry, tid):
     """Load the task/attempt-bound assembled brief that survives dispatch."""
     if not isinstance(entry, dict):
         return None, "registry entry is absent"
@@ -344,7 +408,41 @@ def persisted_task_prompt(entry, tid):
         or not prompt.strip()
     ):
         return None, "persisted assembled brief failed task/attempt binding"
-    return prompt, None
+    return context, None
+
+def persisted_task_prompt(entry, tid):
+    context, problem = persisted_task_context(entry, tid)
+    return (context["task_prompt"], None) if context else (None, problem)
+
+def skill_oracle(entry, context):
+    """Resolve the dispatch's home, never default an unknown lane to Claude."""
+    authority = context["authority"]
+    normalize = lambda lane: "codex" if lane == "gpt-codex" else lane
+    delivered = normalize(entry.get("delivery_lane"))
+    lane = normalize(authority.get("lane")) or delivered
+    if delivered and lane != delivered:
+        return None, None, "dispatch context and registry disagree on the lane"
+    homes = {
+        "claude": (".claude/skills", sentinel),
+        "codex": (".agents/skills", os.environ["CANARY_AGENTS_SENTINEL"]),
+        "kimi": (".agents/skills", os.environ["CANARY_AGENTS_SENTINEL"]),
+        "gemini": ("model-lanes/gemini/.agents/skills", os.environ["CANARY_AGENTS_SENTINEL"]),
+    }
+    if not isinstance(lane, str) or lane not in homes:
+        return None, None, f"skill discovery home is unmeasured for lane {lane!r}"
+    home, expected = homes[lane]
+    # Completion prunes the attempt directory and ref. The promoted quotation
+    # and bound lane survive, so compare against that lane's discovery home in
+    # the working tree under test (including Gemini's cwd bridge). This measures
+    # the surviving quotation against the current copy, not a historical snapshot.
+    skill_file = root / home / "probe-canary/SKILL.md"
+    try:
+        source = skill_file.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return None, None, f"oracle absent or unreadable: {skill_file}: {exc}"
+    if expected not in source:
+        return None, None, f"oracle broken: {skill_file} no longer contains its sentinel"
+    return skill_file, expected, None
 
 # --- Probe 1: dispatch ------------------------------------------------------
 # "A trivial task reaches a lane and returns." The evidence is delivery_history:
@@ -437,16 +535,7 @@ else:
 # scripts/python/validate_skill_wiring.py already proves the file is wired and
 # well-formed; wiring is projection. This asks the different question -- did a
 # runtime actually load and execute it.
-skill_file = root / ".claude" / "skills" / "probe-canary" / "SKILL.md"
-if not skill_file.is_file():
-    emit("skills", "NOT_MEASURED",
-         f"oracle absent: no {skill_file.relative_to(root) if root in skill_file.parents else skill_file}")
-elif sentinel not in skill_file.read_text(encoding="utf-8"):
-    # The oracle drifted. Reporting PASS/FAIL off a sentinel the skill no longer
-    # contains would be measuring nothing at all.
-    emit("skills", "NOT_MEASURED",
-         f"oracle broken: SKILL.md no longer contains the sentinel {sentinel!r}")
-elif registry is None:
+if registry is None:
     emit("skills", "NOT_MEASURED", registry_problem)
 elif not task_id:
     emit("skills", "NOT_MEASURED",
@@ -458,7 +547,8 @@ else:
     # Without this the probe reports FAIL for every ordinary board task, which
     # is a fabricated finding -- and a probe that cries wolf gets ignored
     # exactly like doctor's permanently-yellow warnings did.
-    request_prompt, request_problem = persisted_task_prompt(entry, task_id)
+    context, request_problem = persisted_task_context(entry, task_id)
+    request_prompt = context["task_prompt"] if context else None
     asked = request_prompt is not None and "probe-canary" in request_prompt
     if not entry or not promoted:
         emit("skills", "NOT_MEASURED",
@@ -472,14 +562,18 @@ else:
              "(no such instruction in its task/attempt-bound assembled brief); "
              "dispatch the packet from --emit-packet to measure this")
     else:
-        text = (root / declared).read_text(encoding="utf-8", errors="replace")
-        if sentinel in text:
-            emit("skills", "PASS",
-                 f"{task_id} quoted the probe-canary sentinel: the skill was loaded and run")
+        skill_file, expected, oracle_problem = skill_oracle(entry, context)
+        if oracle_problem:
+            emit("skills", "NOT_MEASURED", oracle_problem)
         else:
-            emit("skills", "FAIL",
-                 f"{task_id} produced an artifact but never quoted the sentinel -- "
-                 "projected, not fired")
+            text = (root / declared).read_text(encoding="utf-8", errors="replace")
+            if expected in text:
+                emit("skills", "PASS",
+                     f"{task_id} quoted the probe-canary sentinel from {skill_file}")
+            else:
+                emit("skills", "FAIL",
+                     f"{task_id} produced an artifact but never quoted the sentinel "
+                     f"from {skill_file} -- projected, not fired")
 
 # --- Probe 5: labelling / organisation --------------------------------------
 # Do artifacts land where the contract said they would? Sampled over the most
@@ -519,17 +613,27 @@ else:
 # packet, so an artifact can only match it by measuring (or fabricating) the
 # runtime result; the literal command/output requirement makes fabrication
 # reviewable in the same way as the skill sentinel above.
-expected_mcp_json = os.environ["CANARY_MCP_EXPECTED_JSON"]
 mcp_marker = os.environ["CANARY_MCP_MARKER"]
+prefix_pattern = r"[A-Za-z0-9]+(?:_[A-Za-z0-9]+)*"
 try:
+    if "CANARY_MCP_EXPECTED_JSON" in os.environ:
+        expected_mcp_json = os.environ["CANARY_MCP_EXPECTED_JSON"]
+    else:
+        expectation_path = Path(os.environ.get(
+            "CANARY_MCP_EXPECTED_FILE", str(root / "_state/canary-mcp-expected.json")
+        ))
+        expected_mcp_json = expectation_path.read_text(encoding="utf-8")
     expected_mcp = json.loads(expected_mcp_json)
-except json.JSONDecodeError as exc:
-    emit("mcp_surface", "NOT_MEASURED", f"canary expectation is invalid JSON: {exc}")
+except (OSError, UnicodeError, ValueError):
+    emit("mcp_surface", "NOT_MEASURED",
+         "canary expectation unavailable or invalid; set CANARY_MCP_EXPECTED_JSON "
+         "or CANARY_MCP_EXPECTED_FILE (see --help)")
 else:
     if (
         not isinstance(expected_mcp, list)
         or not expected_mcp
-        or any(not isinstance(item, str) or not item for item in expected_mcp)
+        or any(not isinstance(item, str) or not re.fullmatch(prefix_pattern, item)
+               for item in expected_mcp)
         or expected_mcp != sorted(set(expected_mcp))
     ):
         emit("mcp_surface", "NOT_MEASURED",
@@ -574,28 +678,28 @@ else:
                          f"artifact MCP report is invalid JSON: {exc}")
                 else:
                     expected_keys = {
-                        "codex_apps_tools", "inventory_command", "server_prefixes",
+                        "tool_names", "inventory_command", "server_prefixes",
                         "successful_probes"
                     }
                     visible = report.get("server_prefixes") if isinstance(report, dict) else None
                     successful = report.get("successful_probes") if isinstance(report, dict) else None
-                    codex_apps_tools = report.get("codex_apps_tools") if isinstance(report, dict) else None
+                    tool_names = report.get("tool_names") if isinstance(report, dict) else None
                     command = report.get("inventory_command") if isinstance(report, dict) else None
                     lists_are_valid = all(
                         isinstance(values, list)
-                        and all(isinstance(item, str) and item for item in values)
+                        and all(isinstance(item, str) and re.fullmatch(prefix_pattern, item)
+                                for item in values)
                         and values == sorted(set(values))
                         for values in (visible, successful)
                     )
-                    codex_apps_tools_are_valid = (
-                        isinstance(codex_apps_tools, list)
+                    tool_names_are_valid = (
+                        isinstance(tool_names, list)
                         and all(
                             isinstance(item, str)
-                            and item.startswith("mcp__codex_apps__")
-                            and item != "mcp__codex_apps__"
-                            for item in codex_apps_tools
+                            and re.fullmatch(rf"mcp__{prefix_pattern}__[A-Za-z0-9_]+", item)
+                            for item in tool_names
                         )
-                        and codex_apps_tools == sorted(set(codex_apps_tools))
+                        and tool_names == sorted(set(tool_names))
                     )
                     if (
                         not isinstance(report, dict)
@@ -604,17 +708,17 @@ else:
                         or not command.strip()
                         or "\n" in command
                         or not lists_are_valid
-                        or not codex_apps_tools_are_valid
+                        or not tool_names_are_valid
                     ):
                         emit("mcp_surface", "NOT_MEASURED",
                              "artifact MCP report has the wrong schema or unsorted values")
-                    elif ("codex_apps" in visible) != bool(codex_apps_tools):
+                    elif sorted({name.split("__", 2)[1] for name in tool_names}) != visible:
                         emit("mcp_surface", "NOT_MEASURED",
-                             "artifact MCP report did not enumerate the visible codex_apps bridge")
+                             "artifact MCP tool inventory does not match its visible namespaces")
                     elif visible == expected_mcp and successful == expected_mcp:
                         emit("mcp_surface", "PASS",
                              f"live prefixes and bounded calls match {expected_mcp}; "
-                             f"codex_apps tools={len(codex_apps_tools)}")
+                             f"enumerated tools={len(tool_names)}")
                     else:
                         missing = sorted(set(expected_mcp) - set(visible))
                         unexpected = sorted(set(visible) - set(expected_mcp))
@@ -715,8 +819,23 @@ PY
 CANARY_FIXTURE=""
 cleanup_fixture() { [[ -n "${CANARY_FIXTURE}" ]] && rm -rf "${CANARY_FIXTURE}"; }
 
+fixture_verdict() {
+    local fixture="$1" probe="$2" expected="$3" label="$4" out
+    out="$(CANARY_ROOT_UNDER_TEST="${fixture}" bash "${BASH_SOURCE[0]}" \
+        --task TASK-2099-01-01-0003-good --no-memory-write 2>&1)"
+    if grep -F "[${expected}]" <<<"${out}" | grep -q " ${probe} "; then
+        printf '  inversion holds    %-28s %s\n' "${label}" "${expected}"
+    else
+        printf '  INVERSION FAILED   %-28s expected %s\n%s\n' "${label}" "${expected}" "${out}"
+        return 1
+    fi
+}
+
 run_self_test() {
     local bad=0
+    # Synthetic projection, isolated from any operator-local configuration.
+    local CANARY_MCP_EXPECTED_JSON='["fixture_alpha","fixture_beta"]'
+    export CANARY_MCP_EXPECTED_JSON
     CANARY_FIXTURE="$(mktemp -d "${TMPDIR:-/tmp}/canary-selftest.XXXXXX")" || exit 2
     trap cleanup_fixture EXIT
     local fixture="${CANARY_FIXTURE}"
@@ -730,11 +849,11 @@ run_self_test() {
     out="$(CANARY_ROOT_UNDER_TEST="${empty_root}" bash "${BASH_SOURCE[0]}" \
         --task TASK-X --no-memory-write 2>&1)"
     for probe in dispatch round_trip skills labelling mcp_surface; do
-        if grep -q "^\[PASS\].* ${probe} " <<<"${out}"; then
-            printf '  INVERSION FAILED  %-28s probe still reported PASS\n' "absent registry / ${probe}"
-            bad=1
+        if grep -q "^\[NOT MEASURED\].* ${probe} " <<<"${out}"; then
+            printf '  inversion holds    %-28s NOT MEASURED\n' "absent registry / ${probe}"
         else
-            printf '  inversion holds    %-28s not a pass\n' "absent registry / ${probe}"
+            printf '  INVERSION FAILED  %-28s expected NOT MEASURED\n' "absent registry / ${probe}"
+            bad=1
         fi
     done
 
@@ -764,13 +883,13 @@ JSON_EOF
         && printf '  inversion holds    %-28s FAIL\n' "queued-but-never-claimed" \
         || { printf '  INVERSION FAILED  %-28s expected FAIL\n' "queued-but-never-claimed"; bad=1; }
     # round trip: no envelope, no artifact, no receipt.
-    grep -qE '^\[(FAIL|NOT MEASURED)\].* round_trip ' <<<"${out}" \
+    grep -q '^\[FAIL\].* round_trip ' <<<"${out}" \
         && printf '  inversion holds    %-28s not a pass\n' "severed round trip" \
         || { printf '  INVERSION FAILED  %-28s expected FAIL\n' "severed round trip"; bad=1; }
-    # skills: the sentinel is gone from SKILL.md -> the oracle cannot see.
+    # skills: without a promoted artifact there is no answer to adjudicate.
     grep -q '^\[NOT MEASURED\].* skills ' <<<"${out}" \
-        && printf '  inversion holds    %-28s NOT MEASURED\n' "sentinel removed from skill" \
-        || { printf '  INVERSION FAILED  %-28s expected NOT MEASURED\n' "sentinel removed from skill"; bad=1; }
+        && printf '  inversion holds    %-28s NOT MEASURED\n' "skill artifact missing" \
+        || { printf '  INVERSION FAILED  %-28s expected NOT MEASURED\n' "skill artifact missing"; bad=1; }
     # labelling: the declared artifact was never promoted.
     grep -q '^\[FAIL\].* labelling ' <<<"${out}" \
         && printf '  inversion holds    %-28s FAIL\n' "artifact missing at declared path" \
@@ -781,15 +900,19 @@ JSON_EOF
     #    case the whole probe exists for, and it must be FAIL, not unmeasured.
     local mute="${fixture}/mute"
     mkdir -p "${mute}/_state/board-dispatch" \
-             "${mute}/departments/coding/outbox" "${mute}/.claude/skills/probe-canary"
+             "${mute}/departments/coding/outbox" "${mute}/.claude/skills/probe-canary" \
+             "${mute}/.agents/skills/probe-canary"
     printf 'If you are reading this, **%s** -- the runtime found this file.\n' \
         "${SKILL_SENTINEL}" > "${mute}/.claude/skills/probe-canary/SKILL.md"
+    printf '%s Report back, verbatim:\n' "${AGENTS_SKILL_SENTINEL}" \
+        > "${mute}/.agents/skills/probe-canary/SKILL.md"
     cat > "${mute}/_state/board-dispatch/TASK-2099-01-01-0002-mute.d-mute.context.json" <<'JSON_EOF'
 {
   "schema": "go-live-trusted-context/v1",
   "authority": {
     "task_id": "TASK-2099-01-01-0002-mute",
     "attempt_id": "d-mute",
+    "lane": "codex",
     "generation": 1
   },
   "task_prompt": "Invoke the project skill named probe-canary and quote it. Return MCP_SURFACE_JSON: evidence."
@@ -798,7 +921,7 @@ JSON_EOF
     printf '%s\n%s %s\n' \
         'I ran the task. I did not invoke any skill.' \
         "${MCP_SURFACE_MARKER}" \
-        '{"codex_apps_tools":["mcp__codex_apps__fixture"],"inventory_command":"fixture inventory","server_prefixes":["chrono_research_arsenal","chrono_vault","codex_apps"],"successful_probes":["chrono_research_arsenal","chrono_vault","codex_apps"]}' \
+        '{"tool_names":["mcp__fixture_alpha__probe"],"inventory_command":"fixture inventory","server_prefixes":["fixture_alpha"],"successful_probes":["fixture_alpha"]}' \
         > "${mute}/departments/coding/outbox/TASK-2099-01-01-0002-mute-response.md"
     cat > "${mute}/_state/active-tasks.json" <<'JSON_EOF'
 {
@@ -833,23 +956,26 @@ JSON_EOF
     local good="${fixture}/good"
     mkdir -p "${good}/_state/chrono-notify-receipts" \
              "${good}/_state/board-dispatch" "${good}/departments/coding/outbox" \
-             "${good}/.claude/skills/probe-canary"
+             "${good}/.claude/skills/probe-canary" "${good}/.agents/skills/probe-canary"
     printf 'If you are reading this, **%s** -- the runtime found this file.\n' \
         "${SKILL_SENTINEL}" > "${good}/.claude/skills/probe-canary/SKILL.md"
+    printf '%s Report back, verbatim:\n' "${AGENTS_SKILL_SENTINEL}" \
+        > "${good}/.agents/skills/probe-canary/SKILL.md"
     cat > "${good}/_state/board-dispatch/TASK-2099-01-01-0003-good.d-good.context.json" <<'JSON_EOF'
 {
   "schema": "go-live-trusted-context/v1",
   "authority": {
     "task_id": "TASK-2099-01-01-0003-good",
     "attempt_id": "d-good",
+    "lane": "codex",
     "generation": 1
   },
   "task_prompt": "Invoke the project skill named probe-canary and quote it. Return MCP_SURFACE_JSON: evidence."
 }
 JSON_EOF
-    printf 'HEAD abc1234. The skill says: %s.\n%s {"codex_apps_tools":["mcp__codex_apps__fixture"],"inventory_command":"fixture inventory","server_prefixes":%s,"successful_probes":%s}\n' \
-        "${SKILL_SENTINEL}" "${MCP_SURFACE_MARKER}" \
-        "${MCP_SURFACE_EXPECTED_JSON}" "${MCP_SURFACE_EXPECTED_JSON}" \
+    printf 'HEAD abc1234. The skill says: %s.\n%s {"tool_names":["mcp__fixture_alpha__probe","mcp__fixture_beta__probe"],"inventory_command":"fixture inventory","server_prefixes":%s,"successful_probes":%s}\n' \
+        "${AGENTS_SKILL_SENTINEL}" "${MCP_SURFACE_MARKER}" \
+        "${CANARY_MCP_EXPECTED_JSON}" "${CANARY_MCP_EXPECTED_JSON}" \
         > "${good}/departments/coding/outbox/TASK-2099-01-01-0003-good-response.md"
     printf '{"event_key":"25|TASK-2099-01-01-0003-good|complete"}\n' \
         > "${good}/_state/chrono-notify-receipts/good.sent"
@@ -859,7 +985,7 @@ JSON_EOF
     "source_namespace": "security",
     "status": "complete",
     "dispatched_at": "2099-01-01T00:00:00+00:00",
-    "delivery_lane": "claude",
+    "delivery_lane": "codex",
     "delivery_attempt_id": "d-good",
     "delivery_generation": 1,
     "return_artifact": "departments/coding/outbox/TASK-2099-01-01-0003-good-response.md",
@@ -883,12 +1009,161 @@ JSON_EOF
         fi
     done
 
+    # The two homes MUST differ. A Codex answer quoting the controller copy
+    # must fail even while both files are present and their oracles are intact.
+    local wrong="${fixture}/wrong-home"
+    cp -R "${good}" "${wrong}"
+    printf '%s\n' "${SKILL_SENTINEL}" \
+        > "${wrong}/departments/coding/outbox/TASK-2099-01-01-0003-good-response.md"
+    fixture_verdict "${wrong}" skills FAIL 'controller quote on Codex' || bad=1
+    printf 'the worker oracle drifted\n' > "${wrong}/.agents/skills/probe-canary/SKILL.md"
+    fixture_verdict "${wrong}" skills 'NOT MEASURED' 'worker sentinel removed' || bad=1
+
+    # Exercise every proven lane home after completion prunes the attempt.
+    # The preserved quotation must pass without any worker directory or Git
+    # repository; missing source, a wrong quotation, or unbound lane must not.
+    CANARY_TEST_SCRIPT="${BASH_SOURCE[0]}" CANARY_GOOD="${good}" \
+    CANARY_FIXTURES="${fixture}" \
+    "${CHRONO_PY}" -B - <<'PY' || bad=1
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+
+script = str(Path(os.environ["CANARY_TEST_SCRIPT"]).resolve())
+fixtures = Path(os.environ["CANARY_FIXTURES"])
+tid = "TASK-2099-01-01-0003-good"
+for lane, home in (("claude", ".claude/skills"), ("gpt-codex", ".agents/skills"),
+                   ("kimi", ".agents/skills"), ("gemini", "model-lanes/gemini/.agents/skills")):
+    root = fixtures / lane
+    shutil.copytree(os.environ["CANARY_GOOD"], root)
+    context_path = root / "_state/board-dispatch" / f"{tid}.d-good.context.json"
+    context = json.loads(context_path.read_text())
+    context["authority"].update(lane=lane, pool_root=str(root / "_state/board-worktrees"))
+    context_path.write_text(json.dumps(context))
+    registry_path = root / "_state/active-tasks.json"
+    registry = json.loads(registry_path.read_text())
+    registry[tid]["delivery_lane"] = lane
+    registry_path.write_text(json.dumps(registry))
+    source = root / (".claude" if lane == "claude" else ".agents") / "skills/probe-canary/SKILL.md"
+    skill_source = source.read_text()
+    skill_file = root / home / "probe-canary/SKILL.md"
+    skill_file.parent.mkdir(parents=True, exist_ok=True)
+    skill_file.write_text(skill_source)
+    artifact = root / registry[tid]["return_artifact"]
+    artifact.write_text(skill_source)
+    assert not (root / "_state/board-worktrees").exists()
+    assert not (root / ".git").exists()
+
+    def expect(status, label):
+        result = subprocess.run(
+            ["bash", script, "--task", tid, "--no-memory-write"],
+            env={**os.environ, "CANARY_ROOT_UNDER_TEST": str(root)},
+            text=True, capture_output=True, timeout=30,
+        )
+        assert any(line.startswith(f"[{status}]") and line.split("]", 1)[1].split()[0] == "skills"
+                   for line in result.stdout.splitlines()), (label, result.stdout, result.stderr)
+        print(f"  {'control' if status == 'PASS' else 'inversion'} holds    {label}: {status}")
+
+    expect("PASS", f"{lane} released attempt / working-tree skill")
+    artifact.write_text("The task ran without invoking the skill.\n")
+    expect("FAIL", f"{lane} skill never fired")
+    artifact.write_text(skill_source)
+    skill_file.write_text("The resolved skill no longer contains its sentinel.\n")
+    expect("NOT MEASURED", f"{lane} resolved sentinel removed")
+    skill_file.write_text(skill_source)
+    # A directory is observable but cannot supply a readable skill body.
+    skill_file.rename(skill_file.with_suffix(".saved"))
+    expect("NOT MEASURED", f"{lane} resolved skill absent")
+    skill_file.mkdir()
+    expect("NOT MEASURED", f"{lane} resolved skill unreadable")
+    skill_file.rmdir()
+    skill_file.with_suffix(".saved").rename(skill_file)
+    context["authority"]["lane"] = "grok"
+    registry[tid]["delivery_lane"] = "grok"
+    context_path.write_text(json.dumps(context))
+    registry_path.write_text(json.dumps(registry))
+    expect("NOT MEASURED", "unknown lane does not default to Claude")
+    context["authority"].update(lane=lane, attempt_id="d-other")
+    registry[tid]["delivery_lane"] = lane
+    context_path.write_text(json.dumps(context))
+    registry_path.write_text(json.dumps(registry))
+    expect("NOT MEASURED", "another attempt cannot supply bound evidence")
+PY
+
+    # Packet regressions are checked against the recipient's runtime map, not
+    # a second hardcoded lane. Neither distinct skill answer may leak into it.
+    local packet model specialist
+    for specialist in backend-engineer systems-engineer; do
+        if [[ "${specialist}" == backend-engineer ]]; then
+            packet="$(emit_packet TASK-2099-01-01-0004-packet)" || { bad=1; continue; }
+        else
+            packet="$(emit_mcp_packet TASK-2099-01-01-0005-mcp)" || { bad=1; continue; }
+        fi
+        model="$(awk -F '\t' -v role="${specialist}" '$1 == role {print $7}' \
+            "${VAULT_ROOT}/shared/specialist-runtime-map.tsv")"
+        [[ "${model}" == codex ]] && model=gpt-codex
+        if grep -qx 'reviews: none' <<<"${packet}" \
+            && grep -qx "to_model: ${model}" <<<"${packet}" \
+            && ! grep -Fq "${SKILL_SENTINEL}" <<<"${packet}" \
+            && ! grep -Fq "${AGENTS_SKILL_SENTINEL}" <<<"${packet}"; then
+            printf '  control holds      %-28s PASS\n' "${specialist} packet contract"
+        else
+            printf '  CONTROL FAILED     %-28s invalid reviews, route, or leaked oracle\n' "${specialist} packet"
+            bad=1
+        fi
+    done
+
+    # Memory uses fake in-process modules in a disposable vault fixture. This
+    # proves the success and failure verdicts without touching the real vault.
+    local memory="${fixture}/memory" variant expected
+    mkdir -p "${memory}/plugins/chrono-vault"
+    cat > "${memory}/plugins/chrono-vault/notes.py" <<'PY'
+import os
+
+def record(note_type, fields):
+    if os.environ["CANARY_MEMORY_CONTROL"] == "record-error":
+        raise RuntimeError("fixture record is broken")
+    return {"id": "mem-canary-fixture", "index_dirty": False}
+PY
+    cat > "${memory}/plugins/chrono-vault/recall.py" <<'PY'
+import os
+
+calls = 0
+
+def recall(query, limit):
+    global calls
+    calls += 1
+    variant = os.environ["CANARY_MEMORY_CONTROL"]
+    if calls == 1:
+        return {"results": [{"id": "unrelated"}] if variant == "dirty-pre" else []}
+    if variant == "recall-error":
+        raise RuntimeError("fixture recall is broken")
+    return {"results": [] if variant == "missing-note" else [{"id": "mem-canary-fixture"}]}
+PY
+    for variant in good record-error recall-error missing-note dirty-pre; do
+        expected=FAIL
+        [[ "${variant}" == good ]] && expected=PASS
+        [[ "${variant}" == dirty-pre ]] && expected='NOT MEASURED'
+        out="$(VAULT_ROOT="${memory}" CANARY_ROOT_UNDER_TEST="${good}" \
+            CHRONO_PY="${CHRONO_PY}" CHRONO_VAULT_ROOT="${memory}" \
+            CANARY_MEMORY_CONTROL="${variant}" \
+            bash "${BASH_SOURCE[0]}" --task TASK-2099-01-01-0003-good 2>&1)"
+        if grep -F "[${expected}]" <<<"${out}" | grep -q ' memory '; then
+            printf '  control holds      %-28s %s\n' "memory / ${variant}" "${expected}"
+        else
+            printf '  CONTROL FAILED     %-28s expected %s\n%s\n' "memory / ${variant}" "${expected}" "${out}"
+            bad=1
+        fi
+    done
+
     # 5. Memory: a vault that fails closed must never read as a working one.
     # No live write happens: the unset root is refused before record is reached.
     out="$(env -u CHRONO_VAULT_ROOT bash "${BASH_SOURCE[0]}" 2>&1)"
-    grep -q '^\[PASS\].* memory ' <<<"${out}" \
-        && { printf '  INVERSION FAILED  %-28s expected not-a-pass\n' "vault root unset"; bad=1; } \
-        || printf '  inversion holds    %-28s not a pass\n' "vault root unset"
+    grep -q '^\[NOT MEASURED\].* memory ' <<<"${out}" \
+        && printf '  inversion holds    %-28s NOT MEASURED\n' "vault root unset" \
+        || { printf '  INVERSION FAILED  %-28s expected NOT MEASURED\n' "vault root unset"; bad=1; }
 
     if (( bad )); then
         printf '\nself-test FAILED: a probe cannot fail, so it is not a gate.\n'

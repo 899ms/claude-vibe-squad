@@ -28,8 +28,8 @@ SAFETY
   passes ``--no-memory-write`` or runs with ``CHRONO_VAULT_ROOT`` unset, and
   the write path is refused before ``notes.record`` is reached. Registry probes
   run against ``CANARY_ROOT_UNDER_TEST`` fixtures in a temp directory; the only
-  live-tree assertions read the probe-canary skill, canary expectation, and its
-  canonical documentation.
+  live-tree assertions read the probe-canary skill, public source, export
+  policy, and canonical documentation. Expectations use synthetic prefixes.
 """
 
 from __future__ import annotations
@@ -37,8 +37,8 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import re
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -55,43 +55,33 @@ CONTEXT_SCHEMA = "go-live-trusted-context/v1"
 # and names the drift. An oracle nobody notices going stale is how a probe
 # starts reporting on nothing.
 SENTINEL = "project-scoped skill loading works"
+AGENTS_SENTINEL = "You reached this file."
 
 
-def expected_mcp_surface() -> list[str]:
-    """Read the executable expectation without maintaining a third copy."""
-    prefix = "MCP_SURFACE_EXPECTED_JSON="
-    declaration = next(
-        line for line in CANARY.read_text(encoding="utf-8").splitlines()
-        if line.startswith(prefix)
-    )
-    return json.loads(declaration.removeprefix(prefix).strip("'"))
+def fixture_mcp_surface() -> list[str]:
+    """Synthetic projection; never read this operator's local expectation."""
+    return ["fixture_alpha", "fixture_beta"]
 
 
-def _codex_apps_measurement_errors(document: str) -> list[str]:
-    """Pin the measured override/control pair and its interpretation."""
-    marker = "## Per-server disable experiment"
-    if marker not in document:
-        return [marker]
-    section = document.split(marker, 1)[1].split("\n## ", 1)[0]
-    required = (
-        "Status: **MEASURED — the override suppresses the bridge.**",
-        "| with `-c 'mcp_servers.codex_apps="
-        "{enabled=false,command=\"/usr/bin/false\"}'` | **0** (`[]`) |",
-        "| **positive control** — same command, override removed | **125** |",
-        "an empty array means the existing override\nsuppresses the bridge.",
-    )
-    errors = [value for value in required if value not in section]
-    if "override does not suppress the bridge" in section:
-        errors.append("inverted suppression verdict")
-    return errors
-
-
-def run_canary(*args: str, root: Path | None = None) -> subprocess.CompletedProcess:
+def run_canary(
+    *args: str,
+    root: Path | None = None,
+    env_overrides: dict[str, str | None] | None = None,
+) -> subprocess.CompletedProcess:
     """Invoke canary.sh with the live vault write path disabled."""
     env = dict(os.environ)
     env.pop("CHRONO_VAULT_ROOT", None)
+    env.pop("CANARY_ROOT_UNDER_TEST", None)
+    env.pop("CANARY_MCP_EXPECTED_FILE", None)
+    env["CHRONO_PY"] = sys.executable
+    env["CANARY_MCP_EXPECTED_JSON"] = json.dumps(fixture_mcp_surface())
     if root is not None:
         env["CANARY_ROOT_UNDER_TEST"] = str(root)
+    for key, value in (env_overrides or {}).items():
+        if value is None:
+            env.pop(key, None)
+        else:
+            env[key] = value
     return subprocess.run(
         ["bash", str(CANARY), *args],
         capture_output=True,
@@ -161,6 +151,35 @@ class SelfTestIsTheGate(unittest.TestCase):
         self.assertGreaterEqual(result.stdout.count("inversion holds"), 10)
         self.assertGreaterEqual(result.stdout.count("control holds"), 5)
 
+    def test_public_dependencies_run_without_private_state_or_venv(self) -> None:
+        from tools.export.path_policy import load_policy
+
+        policy = load_policy(REPO_ROOT / "tools/export/policy/path-policy.json")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for relative in ("bin/canary.sh", "shared/repo-root.sh",
+                             "shared/specialist-runtime-map.tsv"):
+                self.assertEqual(policy.classify(relative), "public", relative)
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes((REPO_ROOT / relative).read_bytes())
+            env = dict(os.environ)
+            for key in ("VAULT_ROOT", "CHRONO_PY", "CHRONO_VAULT_ROOT",
+                        "CANARY_ROOT_UNDER_TEST", "CANARY_MCP_EXPECTED_JSON",
+                        "CANARY_MCP_EXPECTED_FILE"):
+                env.pop(key, None)
+            self.assertFalse((root / "_state").exists())
+            self.assertFalse((root / ".venv").exists())
+            result = subprocess.run(
+                ["bash", str(root / "bin/canary.sh"), "--self-test"],
+                cwd=root, env=env, text=True, capture_output=True, timeout=300,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("working fixture / mcp_surface PASS", result.stdout)
+            # The script pads columns; use the shared result text for inversions.
+            self.assertIn("MCP namespace missing", result.stdout)
+            self.assertNotIn("CONTROL FAILED", result.stdout)
+
 
 class ThreeOutcomesNeverTwo(unittest.TestCase):
     """pass / fail / NOT MEASURED, and NOT MEASURED is never a pass."""
@@ -226,9 +245,10 @@ class SkillsProbeMeasuresFiringNotProjection(unittest.TestCase):
         result = run_canary("--emit-packet", "TASK-2099-01-01-0005-pkt")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn(SENTINEL, result.stdout)
+        self.assertNotIn(AGENTS_SENTINEL, result.stdout)
         self.assertIn("probe-canary", result.stdout)
         self.assertIn("run_id: TASK-2099-01-01-0005-pkt", result.stdout)
-        self.assertIn("to_model: claude", result.stdout)
+        self.assertIn("to_model: gpt-codex", result.stdout)
         self.assertIn("specialist: backend-engineer", result.stdout)
         self.assertNotIn(MCP_MARKER, result.stdout)
 
@@ -241,13 +261,15 @@ class SkillsProbeMeasuresFiringNotProjection(unittest.TestCase):
         self.assertIn("specialist: systems-engineer", result.stdout)
         self.assertIn("run_id: TASK-2099-01-01-0008-mcp-pkt", result.stdout)
         self.assertIn(MCP_MARKER, result.stdout)
-        self.assertIn("codex_apps_tools", result.stdout)
-        self.assertIn("mcp__codex_apps__", result.stdout)
+        self.assertIn("tool_names", result.stdout)
+        self.assertIn("mcp__<runtime prefix>__<tool>", result.stdout)
         self.assertNotIn(
-            json.dumps(expected_mcp_surface(), separators=(",", ":")),
+            json.dumps(fixture_mcp_surface(), separators=(",", ":")),
             result.stdout,
             "the MCP packet quoted the expected answer instead of asking for a probe",
         )
+        for prefix in fixture_mcp_surface():
+            self.assertNotIn(prefix, result.stdout)
 
     def test_persisted_assembled_brief_can_reach_pass(self) -> None:
         """The ask oracle survives after the dispatcher consumes the inbox packet."""
@@ -268,6 +290,7 @@ class SkillsProbeMeasuresFiringNotProjection(unittest.TestCase):
                 "dispatched_at": "2099-01-01T00:00:00+00:00",
                 "delivery_attempt_id": "d-persisted",
                 "delivery_generation": 1,
+                "delivery_lane": "claude",
                 "return_artifact": f"departments/coding/outbox/{task}-response.md",
                 "delivery_history": [
                     {"event": "queued"},
@@ -286,6 +309,65 @@ class SkillsProbeMeasuresFiringNotProjection(unittest.TestCase):
             self.assertFalse((root / "departments/coding/archive" / f"{task}.md").exists())
             result = run_canary("--task", task, "--no-memory-write", root=root)
         self.assertEqual(status_of(result.stdout, "skills"), "PASS", result.stdout)
+
+    def test_released_attempt_uses_the_dispatched_lane_working_tree(self) -> None:
+        """The artifact outlives both the attempt directory and its Git ref."""
+        task = "TASK-2099-01-01-0012-released"
+        homes = (
+            ("claude", ".claude/skills", SENTINEL, AGENTS_SENTINEL),
+            ("codex", ".agents/skills", AGENTS_SENTINEL, SENTINEL),
+            ("gpt-codex", ".agents/skills", AGENTS_SENTINEL, SENTINEL),
+            ("kimi", ".agents/skills", AGENTS_SENTINEL, SENTINEL),
+            ("gemini", "model-lanes/gemini/.agents/skills", AGENTS_SENTINEL, SENTINEL),
+        )
+        for lane, home, expected, wrong in homes:
+            with self.subTest(lane=lane), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                skill = root / home / "probe-canary/SKILL.md"
+                skill.parent.mkdir(parents=True)
+                outbox = root / "departments/coding/outbox"
+                outbox.mkdir(parents=True)
+                artifact = outbox / f"{task}-response.md"
+                entry = {
+                    "status": "complete",
+                    "delivery_lane": lane,
+                    "delivery_attempt_id": "d-released",
+                    "delivery_generation": 1,
+                    "return_artifact": str(artifact.relative_to(root)),
+                    "delivery_history": [{"event": "board-claimed"}, {"event": "terminal"}],
+                }
+                write_fixture(root, entry, task)
+                write_persisted_prompt(root, entry, task, "Invoke probe-canary and quote it.")
+                context_path = root / "_state/board-dispatch" / f"{task}.d-released.context.json"
+                context = json.loads(context_path.read_text(encoding="utf-8"))
+                pool = root / "_state/board-worktrees"
+                context["authority"].update(lane=lane, pool_root=str(pool))
+                context_path.write_text(json.dumps(context), encoding="utf-8")
+                self.assertFalse(pool.exists())
+                self.assertFalse((root / ".git").exists())
+
+                cases = (
+                    (expected.encode(), expected, "PASS", "quoted the probe-canary sentinel"),
+                    (expected.encode(), wrong, "FAIL", "never quoted the sentinel"),
+                    (b"sentinel removed", expected, "NOT MEASURED", "no longer contains its sentinel"),
+                    (b"\xff", expected, "NOT MEASURED", "oracle absent or unreadable"),
+                )
+                for source, quote, status, detail in cases:
+                    with self.subTest(status=status, detail=detail):
+                        skill.write_bytes(source)
+                        artifact.write_text(quote, encoding="utf-8")
+                        result = run_canary("--task", task, "--no-memory-write", root=root)
+                        self.assertEqual(status_of(result.stdout, "skills"), status, result.stdout)
+                        self.assertIn(detail, result.stdout)
+                        self.assertNotIn("dispatched skill snapshot", result.stdout)
+
+                skill.write_text(expected, encoding="utf-8")
+                artifact.write_text(expected, encoding="utf-8")
+                context["authority"]["lane"] = "kimi" if lane == "claude" else "claude"
+                context_path.write_text(json.dumps(context), encoding="utf-8")
+                result = run_canary("--task", task, "--no-memory-write", root=root)
+                self.assertEqual(status_of(result.stdout, "skills"), "NOT MEASURED", result.stdout)
+                self.assertIn("disagree on the lane", result.stdout)
 
     def test_a_task_never_asked_is_unmeasured_not_failed(self) -> None:
         """An ordinary board task is not evidence about skills either way."""
@@ -372,7 +454,10 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
         *,
         server_prefixes: list[str],
         successful_probes: list[str],
-        codex_apps_tools: list[str] | None = None,
+        tool_names: list[str] | None = None,
+        env_overrides: dict[str, str | None] | None = None,
+        local_expectation: bytes | None = None,
+        report_overrides: dict | None = None,
     ) -> subprocess.CompletedProcess:
         task = "TASK-2099-01-01-0007-mcp"
         with tempfile.TemporaryDirectory() as tmp:
@@ -380,17 +465,15 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
             outbox = root / "departments" / "coding" / "outbox"
             outbox.mkdir(parents=True)
             report = {
-                "codex_apps_tools": (
-                    codex_apps_tools
-                    if codex_apps_tools is not None
-                    else ["mcp__codex_apps__fixture"]
-                    if "codex_apps" in server_prefixes
-                    else []
+                "tool_names": (
+                    tool_names if tool_names is not None
+                    else sorted({f"mcp__{prefix}__probe" for prefix in server_prefixes})
                 ),
                 "inventory_command": "fixture live tool manifest",
                 "server_prefixes": server_prefixes,
                 "successful_probes": successful_probes,
             }
+            report.update(report_overrides or {})
             (outbox / f"{task}-response.md").write_text(
                 f"{MCP_MARKER} {json.dumps(report, separators=(',', ':'))}\n",
                 encoding="utf-8",
@@ -409,16 +492,21 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
                 ],
             }
             write_fixture(root, entry, task)
+            if local_expectation is not None:
+                (root / "_state/canary-mcp-expected.json").write_bytes(local_expectation)
             write_persisted_prompt(
                 root,
                 entry,
                 task,
                 f"Measure the live tool manifest and return {MCP_MARKER} evidence.",
             )
-            return run_canary("--mcp-task", task, "--no-memory-write", root=root)
+            return run_canary(
+                "--mcp-task", task, "--no-memory-write", root=root,
+                env_overrides=env_overrides,
+            )
 
     def test_exact_live_surface_and_calls_pass(self) -> None:
-        expected = expected_mcp_surface()
+        expected = fixture_mcp_surface()
         result = self.run_surface_fixture(
             server_prefixes=expected,
             successful_probes=expected,
@@ -426,7 +514,7 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
         self.assertEqual(status_of(result.stdout, "mcp_surface"), "PASS", result.stdout)
 
     def test_missing_namespace_fails(self) -> None:
-        expected = expected_mcp_surface()
+        expected = fixture_mcp_surface()
         broken = expected[:-1]
         result = self.run_surface_fixture(
             server_prefixes=broken,
@@ -434,72 +522,154 @@ class McpSurfaceMeasuresTheWorkerNotConfig(unittest.TestCase):
         )
         self.assertEqual(status_of(result.stdout, "mcp_surface"), "FAIL", result.stdout)
 
+    def test_changed_projection_fails_against_the_same_observation(self) -> None:
+        observed = fixture_mcp_surface()
+        for projection, status in ((observed, "PASS"), (["fixture_other"], "FAIL")):
+            with self.subTest(projection=projection):
+                result = self.run_surface_fixture(
+                    server_prefixes=observed, successful_probes=observed,
+                    env_overrides={"CANARY_MCP_EXPECTED_JSON": json.dumps(projection)},
+                )
+                self.assertEqual(status_of(result.stdout, "mcp_surface"), status, result.stdout)
+                if status == "FAIL":
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("missing=['fixture_other']", result.stdout)
+                    self.assertIn(f"unexpected={observed}", result.stdout)
+
     def test_visible_but_uncallable_namespace_fails(self) -> None:
-        expected = expected_mcp_surface()
+        expected = fixture_mcp_surface()
         result = self.run_surface_fixture(
             server_prefixes=expected,
             successful_probes=expected[:-1],
         )
         self.assertEqual(status_of(result.stdout, "mcp_surface"), "FAIL", result.stdout)
 
-    def test_visible_bridge_without_tool_inventory_is_unmeasured(self) -> None:
-        expected = expected_mcp_surface()
+    def test_visible_namespace_without_tool_inventory_is_unmeasured(self) -> None:
+        expected = fixture_mcp_surface()
         result = self.run_surface_fixture(
             server_prefixes=expected,
             successful_probes=expected,
-            codex_apps_tools=[],
+            tool_names=[],
         )
         self.assertEqual(
             status_of(result.stdout, "mcp_surface"), "NOT MEASURED", result.stdout
         )
 
-    def test_documented_surface_matches_executable_expectation(self) -> None:
+    def test_documented_canary_contract_preserves_outcome_vocabulary(self) -> None:
         self.assertTrue(MCP_SURFACE_DOC.is_file(), f"missing {MCP_SURFACE_DOC}")
         document = MCP_SURFACE_DOC.read_text(encoding="utf-8")
-        encoded = json.dumps(expected_mcp_surface(), separators=(",", ":"))
-        self.assertIn(
-            f"Canary contract (runtime prefixes): `{encoded}`",
-            document,
-        )
+        self.assertIn("## Canary contract", document)
+        for outcome in ("PASS", "FAIL", "NOT_MEASURED"):
+            self.assertIn(f"`{outcome}`", document)
 
-    def test_document_records_complete_codex_apps_inventory(self) -> None:
-        document = MCP_SURFACE_DOC.read_text(encoding="utf-8")
-        documented_tools = re.findall(
-            r"^mcp__codex_apps__[A-Za-z0-9_]+$", document, flags=re.MULTILINE
-        )
-        self.assertEqual(len(documented_tools), 125)
-        self.assertEqual(documented_tools, sorted(set(documented_tools)))
-        self.assertIn("mcp_servers.codex_apps={enabled=false", document)
-        # The disable experiment was NOT MEASURED until 2026-08-28, when Chrono ran
-        # it from the main checkout (a worker may not launch a second Codex CLI).
-        # The guard's point survives the flip: a suppression verdict is only
-        # meaningful alongside the positive control, because an empty array is
-        # equally consistent with a probe that never had the bridge at all.
-        self.assertEqual(_codex_apps_measurement_errors(document), [])
+    def test_tool_inventory_structure_and_count_are_consistent(self) -> None:
+        expected = fixture_mcp_surface()
+        # Vary the synthetic inventory; its total is derived, never a host snapshot.
+        for operations in (("probe",), ("health", "probe", "version")):
+            tools = sorted(f"mcp__{prefix}__{op}" for prefix in expected for op in operations)
+            with self.subTest(operations=operations):
+                result = self.run_surface_fixture(
+                    server_prefixes=expected, successful_probes=expected, tool_names=tools,
+                )
+                self.assertEqual(status_of(result.stdout, "mcp_surface"), "PASS", result.stdout)
+                self.assertIn(f"enumerated tools={len(tools)}", result.stdout)
 
-    def test_document_guard_rejects_an_inverted_measurement(self) -> None:
-        document = MCP_SURFACE_DOC.read_text(encoding="utf-8")
-        mutated = document.replace(
-            "Status: **MEASURED — the override suppresses the bridge.**",
-            "Status: **MEASURED — the override does not suppress the bridge.**",
-            1,
-        ).replace(
-            "| with `-c 'mcp_servers.codex_apps="
-            "{enabled=false,command=\"/usr/bin/false\"}'` | **0** (`[]`) |",
-            "| with `-c 'mcp_servers.codex_apps="
-            "{enabled=false,command=\"/usr/bin/false\"}'` | **125** |",
-            1,
-        ).replace(
-            "| **positive control** — same command, override removed | **125** |",
-            "| **positive control** — same command, override removed | **0** (`[]`) |",
-            1,
-        ).replace(
-            "an empty array means the existing override\nsuppresses the bridge.",
-            "an empty array means the existing override\ndoes not suppress the bridge.",
-            1,
+    def test_inconsistent_or_malformed_tool_inventories_are_unmeasured(self) -> None:
+        expected = fixture_mcp_surface()
+        tools = sorted(f"mcp__{prefix}__probe" for prefix in expected)
+        invalid = (
+            tools[:-1], tools + ["mcp__fixture_unexpected__probe"],
+            tools + [tools[-1]], list(reversed(tools)),
+            ["mcp__fixture_alpha__"], ["mcp____probe"], ["not_a_tool"], [None],
         )
-        self.assertNotEqual(mutated, document, "measurement mutation did not apply")
-        self.assertNotEqual(_codex_apps_measurement_errors(mutated), [])
+        for broken in invalid:
+            with self.subTest(tools=broken):
+                result = self.run_surface_fixture(
+                    server_prefixes=expected, successful_probes=expected, tool_names=broken,
+                )
+                self.assertEqual(status_of(result.stdout, "mcp_surface"), "NOT MEASURED", result.stdout)
+
+    def test_empty_or_unexpected_surface_fails(self) -> None:
+        for visible in ([], fixture_mcp_surface() + ["fixture_unexpected"]):
+            with self.subTest(visible=visible):
+                result = self.run_surface_fixture(server_prefixes=visible, successful_probes=visible)
+                self.assertEqual(status_of(result.stdout, "mcp_surface"), "FAIL", result.stdout)
+                self.assertEqual(result.returncode, 1, result.stdout)
+
+    def test_malformed_namespace_arrays_are_unmeasured(self) -> None:
+        expected = fixture_mcp_surface()
+        for key in ("server_prefixes", "successful_probes"):
+            for broken in (expected + [expected[-1]], list(reversed(expected)), [None], "prefix"):
+                with self.subTest(key=key, broken=broken):
+                    result = self.run_surface_fixture(
+                        server_prefixes=expected, successful_probes=expected,
+                        report_overrides={key: broken},
+                    )
+                    self.assertEqual(status_of(result.stdout, "mcp_surface"), "NOT MEASURED", result.stdout)
+
+    def test_local_expectation_file_and_environment_precedence(self) -> None:
+        expected = fixture_mcp_surface()
+        cases = (
+            (None, json.dumps(expected).encode(), "PASS"),
+            (json.dumps(expected), b'["fixture_other"]', "PASS"),
+            (json.dumps(["fixture_other"]), json.dumps(expected).encode(), "FAIL"),
+            ("", json.dumps(expected).encode(), "NOT MEASURED"),
+            ("not-json", json.dumps(expected).encode(), "NOT MEASURED"),
+        )
+        for env_json, file_bytes, status in cases:
+            with self.subTest(env_json=env_json, status=status):
+                result = self.run_surface_fixture(
+                    server_prefixes=expected, successful_probes=expected,
+                    env_overrides={"CANARY_MCP_EXPECTED_JSON": env_json},
+                    local_expectation=file_bytes,
+                )
+                self.assertEqual(status_of(result.stdout, "mcp_surface"), status, result.stdout)
+
+    def test_missing_or_invalid_local_configuration_is_unmeasured(self) -> None:
+        expected = fixture_mcp_surface()
+        for file_bytes in (None, b"", b"not-json", b"\xff", b"[]", b"{}", b'[null]',
+                           b'["bad prefix"]', b'["bad__prefix"]',
+                           json.dumps(expected + [expected[-1]]).encode(),
+                           json.dumps(list(reversed(expected))).encode()):
+            with self.subTest(file_bytes=file_bytes):
+                result = self.run_surface_fixture(
+                    server_prefixes=expected, successful_probes=expected,
+                    env_overrides={"CANARY_MCP_EXPECTED_JSON": None},
+                    local_expectation=file_bytes,
+                )
+                self.assertEqual(status_of(result.stdout, "mcp_surface"), "NOT MEASURED", result.stdout)
+                self.assertEqual(result.returncode, 2, result.stdout)
+
+    def test_external_expectation_path_and_read_error(self) -> None:
+        expected = fixture_mcp_surface()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "operator.json"
+            path.write_text(json.dumps(expected), encoding="utf-8")
+            for filename, status in ((path, "PASS"), (path.parent, "NOT MEASURED"),
+                                     (path.with_suffix(".absent"), "NOT MEASURED")):
+                with self.subTest(filename=filename):
+                    result = self.run_surface_fixture(
+                        server_prefixes=expected, successful_probes=expected,
+                        env_overrides={"CANARY_MCP_EXPECTED_JSON": None,
+                                       "CANARY_MCP_EXPECTED_FILE": str(filename)},
+                        local_expectation=b'["fixture_other"]',
+                    )
+                    self.assertEqual(status_of(result.stdout, "mcp_surface"), status, result.stdout)
+
+    def test_placeholder_example_and_help_work_without_configuration(self) -> None:
+        for args in (("--emit-mcp-expectation-example",), ("--help",),
+                     ("--emit-mcp-packet", "TASK-2099-01-01-example")):
+            with self.subTest(args=args):
+                result = run_canary(*args, env_overrides={"CANARY_MCP_EXPECTED_JSON": None})
+                self.assertEqual(result.returncode, 0, result.stderr)
+                if args == ("--emit-mcp-expectation-example",):
+                    example = json.loads(result.stdout)
+                    self.assertTrue(example)
+                    self.assertEqual(example, sorted(set(example)))
+                    self.assertTrue(all(prefix.startswith("example_") for prefix in example))
+                elif args == ("--help",):
+                    self.assertIn("Generate yours:", result.stdout)
+                    self.assertIn("CANARY_MCP_EXPECTED_FILE", result.stdout)
 
 
 class MemoryProbeFailsClosed(unittest.TestCase):

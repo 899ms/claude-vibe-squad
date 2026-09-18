@@ -40,6 +40,8 @@ WHAT IT ENFORCES (hard failures -> exit 1)
        - gemini bridge: ``model-lanes/gemini/.agents/skills`` must be a regular materialized
          directory whose loadable entries correspond to shared-home skills (gemini's cwd is
          model-lanes/gemini; without the bridge it sees only built-in skills).
+         Each SKILL.md must match its canonical home byte-for-byte, including frontmatter;
+         only the deliberately different per-path ``probe-canary`` is exempt from identity.
        - kimi launcher: ``bin/board-supervisor.sh`` must pass ``--skills-dir`` to override
          kimi's broader default discovery with the shared specialist skill home.
   5. Audience routing (who a skill is FOR — see ``model-lanes/SKILL-HOMES.md``):
@@ -58,6 +60,11 @@ WHAT IT ENFORCES (hard failures -> exit 1)
      by a board worker without operator-authorized deletion are carried in ``PENDING_DEMOTION``
      as a LOUD note rather than a hard failure (same "don't red-line CI on blocked rollout
      work" stance as the backlog note below); they clear the moment the operator deletes them.
+  6. Retirement liveness: current capability cards, modes/profiles, specialist briefs,
+     capability projections and live skill bodies must not demand a retired-only skill.
+     Registry state ``no`` does not remove a skill from this census. Retained archive
+     rows and historical mentions are legal; a real same-name live provider clears
+     retirement. Every demand location is reported, without truncating the list.
 
 WHAT IT REPORTS (informational -> never fails the gate)
   - active-thread drift: a charter whose DONE-WHEN checklist is fully checked but
@@ -101,6 +108,8 @@ import tempfile
 from pathlib import Path
 
 from chrono_state.thread_charters import CHARTERS_REL, clip, load_active_charters
+from validate_capabilities import Validator, retired_skill_references, table_cells
+from specialist_capability_source import CapabilitySourceError, SOURCE_RELATIVE, load_source
 
 MIN_DESC_LEN = 40
 CLAUDE_SKILLS_REL = ".claude/skills"  # CORRECTED claude load path (repo-root); proven 2026-08-18
@@ -441,7 +450,10 @@ def check_gemini_bridge(root: Path) -> list[str]:
     be a lane-specific subset, but every loadable entry must name a skill in the
     shared ``.agents/skills`` home; an empty, malformed, or unrelated directory is
     not a bridge. Verified live 2026-08-18: gemini enumerates project skills from a
-    regular directory.
+    regular directory. Each SKILL.md must be byte-identical to its canonical home:
+    .claude wins for cross-lane skills, .agents for skills native to that home.
+    Only probe-canary is exempt from identity, because its per-path content differs
+    deliberately. The exemption does not bypass structure or membership checks.
     """
     errors: list[str] = []
     base = root / AGENTS_SKILLS_REL
@@ -485,6 +497,22 @@ def check_gemini_bridge(root: Path) -> list[str]:
             errors.append(
                 f"{GEMINI_BRIDGE_REL}/skills/{entry.name}/SKILL.md: is a symlink — "
                 f"expected a regular-file copy")
+        elif entry.name in shared and entry.name != "probe-canary":
+            canonical = root / CLAUDE_SKILLS_REL / entry.name / "SKILL.md"
+            if not canonical.exists():
+                canonical = base / entry.name / "SKILL.md"
+            skill_md = entry / "SKILL.md"
+            try:
+                matches = skill_md.read_bytes() == canonical.read_bytes()
+            except OSError as exc:
+                errors.append(
+                    f"{skill_md.relative_to(root)}: cannot compare bridge content with "
+                    f"canonical {canonical.relative_to(root)}: {exc}")
+            else:
+                if not matches:
+                    errors.append(
+                        f"{skill_md.relative_to(root)}: bytes differ from canonical "
+                        f"{canonical.relative_to(root)}; refresh the bridge copy")
     if not bridged:
         errors.append(
             f"{GEMINI_BRIDGE_REL}/skills: contains no loadable project skills")
@@ -691,6 +719,144 @@ def demand_referenced(root: Path, universe: set[str]) -> set[str]:
     return found
 
 
+def skill_table_demands(text: str, retired: dict[str, list[str]]) -> set[tuple[str, int]]:
+    """Skill/checklist columns are operational lists even outside S0-S7 cards.
+
+    Reuse the clause classifier for explicit denials and historical entries.
+    Ordinary reference tables are not dependency declarations.
+    """
+    demands: set[tuple[str, int]] = set()
+    headers: list[str] = []
+    columns: list[int] = []
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line.strip().startswith("|"):
+            headers, columns = [], []
+            continue
+        cells = table_cells(line)
+        if not headers:
+            headers = cells
+            continue
+        if all(re.fullmatch(r":?-{3,}:?", cell.strip()) for cell in cells):
+            columns = [index for index, header in enumerate(headers)
+                       if re.search(r"\b(?:skills?|checklists?|methodolog(?:y|ies)|dependencies)\b",
+                                    header, re.IGNORECASE)
+                       and not re.search(r"\b(?:historical|retired|superseded)\b", header, re.IGNORECASE)]
+            continue
+        for index in columns:
+            if index >= len(cells):
+                continue
+            for ref in retired_skill_references(f"- {cells[index]}", retired):
+                if ref.kind == "demand":
+                    demands.add((ref.name, number))
+    return demands
+
+
+def check_retired_skill_demand(root: Path) -> tuple[list[str], list[str]]:
+    """Resolve retirement against providers, then census current demand locations.
+
+    The capability validator owns registry retirement and mention/demand grammar.
+    Load-path providers also count here: a retained archive row must not hide a
+    genuine same-name replacement already delivered to a runtime skill home.
+    This is a repository wiring check, not proof of invocation on every lane.
+    """
+    if not (root / REGISTRY_REL).is_file():
+        return [], []  # Small standalone load-path fixtures have no registry.
+    root = root.resolve()
+    try:
+        validator = Validator(root)
+    except (OSError, KeyError, csv.Error) as exc:
+        return [f"retirement census unavailable: {exc}"], []
+    archive = (root / "shared/skills/_retired").resolve()
+    # A move may leave the registry pointing at the old, now-missing local path.
+    # Preserve that retirement signal too; external/plugin rows have their own
+    # provider lifecycle and are not inferred from a retired local copy.
+    for name, rows in validator.skills.items():
+        local_rows = [row for row in rows
+                      if row.get("path_or_source", "").startswith(
+                          ("shared/skills/", f"{CLAUDE_SKILLS_REL}/", f"{AGENTS_SKILLS_REL}/"))]
+        for archived in (archive / f"{name}.md", archive / name / "SKILL.md"):
+            if (local_rows and archived.is_file()
+                    and all(Path(os.path.abspath(root / row["path_or_source"])) != archived
+                            for row in local_rows)):
+                rows.append({"path_or_source": str(archived)})
+    retired = validator.retired_only_skills()
+    skill_paths: set[Path] = set()
+    for home in (CLAUDE_SKILLS_REL, AGENTS_SKILLS_REL):
+        for name, path in _skill_dirs(root / home).items():
+            if path.resolve().is_relative_to(archive):
+                continue
+            # Mirrors and canonical files must be regular, valid skill documents.
+            if any((root / Path(*path.relative_to(root).parts[:index])).is_symlink()
+                   for index in range(1, len(path.relative_to(root).parts) + 1)):
+                continue
+            if not check_integrity(root, {name: path}) and skill_audience(path) in AUDIENCE_VALUES:
+                retired.pop(name, None)
+            skill_paths.update(path.parent.rglob("*.md"))
+
+    paths = set(skill_paths)
+    for pattern in (
+        "shared/capabilities/**/*.md", "shared/specialists/*.md",
+        "shared/modes/*.md", "shared/mode-profiles/**/*.md",
+        "departments/*/specialists/*.md", "shared/skills/*.md",
+        "shared/skills/*/SKILL.md",
+    ):
+        paths.update(root.glob(pattern))
+    paths = {path for path in paths if "_retired" not in path.relative_to(root).parts
+             and not path.resolve().is_relative_to(archive)}
+    demands: dict[str, set[str]] = {}
+    mentions: dict[str, set[str]] = {}
+    errors: list[str] = []
+    for path in sorted(paths):
+        relative = path.relative_to(root).as_posix()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            errors.append(f"{relative}: retirement census unreadable ({exc})")
+            continue
+        table_demands = skill_table_demands(text, retired)
+        for ref in retired_skill_references(text, retired):
+            target = demands if ref.kind == "demand" or (ref.name, ref.line) in table_demands else mentions
+            target.setdefault(ref.name, set()).add(f"{relative}:{ref.line}")
+
+    # The source is authoritative; generated lane adapters are duplicate projections.
+    source_path = root / SOURCE_RELATIVE
+    if source_path.is_file():
+        try:
+            _, source = load_source(root)
+            for index, entry in enumerate(source["entries"]):
+                for skill_index, skill in enumerate(entry.get("skills", [])):
+                    name = skill["id"]
+                    if name not in retired:
+                        continue
+                    superseded = (
+                        skill["availability"] == "superseded"
+                        and skill["evidence"] == "superseded"
+                        and skill["requirement"] == "preferred"
+                    )
+                    target = mentions if superseded else demands
+                    target.setdefault(name, set()).add(
+                        f"{SOURCE_RELATIVE}:$.entries[{index}].skills[{skill_index}].id "
+                        f"({entry['specialist']}, {entry['lane']})")
+        except (CapabilitySourceError, UnicodeError, AttributeError, TypeError, KeyError) as exc:
+            errors.append(f"{SOURCE_RELATIVE}: retirement census unavailable ({exc})")
+
+    for name, locations in sorted(demands.items()):
+        errors.append(
+            f"retired-only skill '{name}' has no live provider; "
+            f"registry archive(s): {', '.join(retired[name])}; "
+            f"current demand(s): {'; '.join(sorted(locations))}")
+    reports = [
+        f"retirement census: {len(paths)} Markdown file(s); "
+        f"capability source {'checked' if source_path.is_file() else 'absent (not measured)'}; "
+        f"{len(retired)} retired-only identifier(s); "
+        f"{len(demands)} demanded identifier(s), {sum(map(len, demands.values()))} demand location(s); "
+        f"{len(mentions)} mentioned identifier(s), {sum(map(len, mentions.values()))} mention location(s)"
+    ]
+    for name, locations in sorted(mentions.items()):
+        reports.append(f"retired mention '{name}': {'; '.join(sorted(locations))}")
+    return errors, reports
+
+
 def thread_charter_reports(root: Path) -> list[str]:
     """Report active-charter debt without changing the validator's exit status."""
     reports: list[str] = []
@@ -731,6 +897,7 @@ def run(root: Path, verbose: bool = True) -> int:
     collision_errors, collision_report = check_trigger_collisions(wired)
     coverage_errors, coverage_report = per_lane_coverage(root)
     audience_errors, audience_notes = check_audience(root, wired)
+    retirement_errors, retirement_report = check_retired_skill_demand(root)
     errors = (
         check_skill_directories(root)
         + check_integrity(root, wired)
@@ -738,6 +905,7 @@ def run(root: Path, verbose: bool = True) -> int:
         + collision_errors
         + coverage_errors
         + audience_errors
+        + retirement_errors
     )
 
     authored = registry_authored(root)
@@ -764,6 +932,8 @@ def run(root: Path, verbose: bool = True) -> int:
         for line in coverage_report:
             print(f"note[skill-wiring] {line}", file=sys.stderr)
         for line in audience_notes:
+            print(f"note[skill-wiring] {line}", file=sys.stderr)
+        for line in retirement_report:
             print(f"note[skill-wiring] {line}", file=sys.stderr)
         for line in charter_reports:
             print(f"report[thread-charter] {line}", file=sys.stderr)

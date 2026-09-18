@@ -16,6 +16,32 @@ from typing import Iterable
 from repo_root import resolve_vault_root
 
 
+# Fixed repository inputs; specialist, adapter, and mode files are discovered
+# from the runtime map, lane policy, and existing directory globs.
+INPUT_PATHS = (
+    "shared/specialist-runtime-map.tsv",
+    "shared/registries/profiles.tsv",
+    "shared/registries/policies.tsv",
+    "shared/registries/skill-tool-registry.tsv",
+    "shared/lane-policy.tsv",
+    "shared/api-catalog.md",
+    "shared/skills/catalog.txt",
+    "chrono/CLAUDE.md",
+    "chrono/operator-setup.md",
+    "chrono/SPECIALIST-INDEX.md",
+)
+(
+    RUNTIME_RELATIVE,
+    PROFILE_RELATIVE,
+    POLICY_RELATIVE,
+    TOOL_RELATIVE,
+    LANE_POLICY_RELATIVE,
+    API_CATALOG_RELATIVE,
+    SKILL_CATALOG_RELATIVE,
+) = INPUT_PATHS[:7]
+ROUTE_INPUTS = INPUT_PATHS[7:]
+
+
 RUNTIME_HEADER = [
     "specialist", "source_namespace", "capability_class", "safety_level",
     "safety_tags", "tool_profile", "primary_lane", "primary_profile",
@@ -149,12 +175,12 @@ class Validator:
         self.findings: list[Finding] = []
         self.total = self.passed = 0
 
-        self.runtime_path = self.root / "shared/specialist-runtime-map.tsv"
-        self.profile_path = self.root / "shared/registries/profiles.tsv"
-        self.policy_path = self.root / "shared/registries/policies.tsv"
-        self.tool_path = self.root / "shared/registries/skill-tool-registry.tsv"
-        self.lane_policy_path = self.root / "shared/lane-policy.tsv"
-        bundled_lane_policy = Path(__file__).resolve().parents[2] / "shared/lane-policy.tsv"
+        self.runtime_path = self.root / RUNTIME_RELATIVE
+        self.profile_path = self.root / PROFILE_RELATIVE
+        self.policy_path = self.root / POLICY_RELATIVE
+        self.tool_path = self.root / TOOL_RELATIVE
+        self.lane_policy_path = self.root / LANE_POLICY_RELATIVE
+        bundled_lane_policy = Path(__file__).resolve().parents[2] / LANE_POLICY_RELATIVE
         if not self.lane_policy_path.is_file() and bundled_lane_policy.is_file():
             # Hermetic validator fixtures intentionally construct only the registry
             # under test. Reuse this validator build's canonical policy data instead
@@ -526,7 +552,7 @@ class Validator:
                 self.add(f"{self.runtime_path}:{name}", "fail", *issues)
 
     def verified_mcps(self) -> set[str]:
-        catalog = self.root / "shared/api-catalog.md"
+        catalog = self.root / API_CATALOG_RELATIVE
         if not catalog.is_file():
             return set()
         current = ""
@@ -552,7 +578,7 @@ class Validator:
         shared = self.root / "shared/skills"
         if shared.is_dir():
             skills.update(path.stem for path in shared.glob("*.md"))
-            catalog = shared / "catalog.txt"
+            catalog = self.root / SKILL_CATALOG_RELATIVE
             if catalog.is_file():
                 skills.update(line.strip() for line in catalog.read_text().splitlines()
                               if line.strip() and not line.lstrip().startswith("#"))
@@ -641,8 +667,7 @@ class Validator:
     def validate_routes(self) -> None:
         paths = list(self.root.glob("shared/modes/*.md"))
         paths.extend(self.root.glob("departments/*/NAMESPACE.md"))
-        paths.extend(self.root / rel for rel in ("chrono/CLAUDE.md", "chrono/operator-setup.md",
-                                                 "chrono/SPECIALIST-INDEX.md"))
+        paths.extend(self.root / rel for rel in ROUTE_INPUTS)
         for path in sorted(set(paths), key=str):
             if not path.is_file():
                 continue

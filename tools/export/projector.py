@@ -831,6 +831,52 @@ def _annotate_public_bounty_mode(
     return True
 
 
+def _filter_public_marketplace(
+    root: Path,
+    source_sha: str,
+    public_paths: set[str],
+    *,
+    environment: dict[str, str],
+) -> None:
+    """Retain local plugins only when their manifests survive path policy.
+
+    Use the classified file set: classifying just a directory would miss a
+    subtree deny such as ``plugins/private/**``. Remote source objects do not
+    refer to this tree and remain unchanged. Never edit the private catalogue
+    or reintroduce a catalogue that the policy itself withheld.
+    """
+    path = ".claude-plugin/marketplace.json"
+    if path not in public_paths:
+        return
+    try:
+        document = json.loads(_git(root, ["cat-file", "blob", f"{source_sha}:{path}"]))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ProjectorError(f"invalid marketplace JSON: {path!r}") from error
+    if not isinstance(document, dict) or not isinstance(document.get("plugins"), list):
+        raise ProjectorError(f"marketplace must contain a plugins list: {path!r}")
+
+    plugins = []
+    for plugin in document["plugins"]:
+        if not isinstance(plugin, dict) or not isinstance(plugin.get("source"), (str, dict)):
+            raise ProjectorError(f"marketplace plugin must declare a source: {path!r}")
+        source = plugin["source"]
+        if isinstance(source, str):
+            manifest = source.removeprefix("./").rstrip("/") + "/.claude-plugin/plugin.json"
+            if manifest not in public_paths:
+                continue
+        plugins.append(plugin)
+    if plugins == document["plugins"]:
+        return
+    document["plugins"] = plugins
+    content = (json.dumps(document, indent=2) + "\n").encode("utf-8")
+    blob = _git(root, ["hash-object", "-w", "--stdin"], input_bytes=content).decode().strip()
+    _git(
+        root,
+        ["update-index", "--add", "--cacheinfo", f"100644,{blob},{path}"],
+        environment=environment,
+    )
+
+
 def _append_ledger(path: Path, result: ProjectionResult) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     record = {
@@ -893,7 +939,7 @@ def project(
         policy = load_policy(policy_path)
     except PolicyError as error:
         raise ProjectorError(str(error)) from error
-    refused, _public, unclassified = _classify_source(root, source_sha, policy)
+    refused, public, unclassified = _classify_source(root, source_sha, policy)
     policy_sha256 = hashlib.sha256(policy_path.read_bytes()).hexdigest()
     candidate = _prepare_candidate_root(candidate_root)
     gate_report.parent.mkdir(parents=True, exist_ok=True)
@@ -918,6 +964,12 @@ def project(
             root,
             source_sha,
             policy,
+            environment=index_environment,
+        )
+        _filter_public_marketplace(
+            root,
+            source_sha,
+            set(public),
             environment=index_environment,
         )
         candidate_tree = _git(root, ["write-tree"], environment=index_environment).decode().strip()

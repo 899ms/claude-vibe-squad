@@ -25,11 +25,14 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import ast
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+
+from scripts.python.tests.ci_host_independence import skip_in_host_independent_ci
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -40,20 +43,68 @@ import doctor_fixture  # noqa: E402
 ROOT = Path(__file__).resolve().parents[3]
 
 
+def seed_guard_inputs(repo_root: Path, fixture_root: Path) -> list[str]:
+    """Copy the guard plus every input IT declares into a fixture checkout.
+
+    One home for this, because hand-listing broke three separate fixtures in two
+    days: each guard input added silently invalidated them until someone chased
+    the failure back. The guard's own *_INPUTS tuples are the source of truth.
+    Returns the paths actually copied.
+    """
+    guard = repo_root / "scripts" / "hooks" / "pre-commit"
+    (fixture_root / "scripts" / "hooks").mkdir(parents=True, exist_ok=True)
+    shutil.copy2(guard, fixture_root / "scripts" / "hooks" / "pre-commit")
+    declared = ["scripts/python/validate_release_version.py"]
+    for node in ast.parse(guard.read_text(encoding="utf-8")).body:
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id.endswith("_INPUTS"):
+                    for element in getattr(node.value, "elts", []):
+                        if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                            declared.append(element.value)
+    copied = []
+    for rel in declared:
+        src = repo_root / rel
+        if not src.is_file():
+            continue
+        dst = fixture_root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        copied.append(rel)
+    return copied
+
 def install_managed_hook(repo_root: Path, fixture_root: Path, home: Path) -> None:
     """Supply doctor's hook prerequisite in the disposable Git repo only.
 
     Shared by the six doctor suites: use the real installer and reviewed guard
     so a passing fixture cannot drift from the installation doctor checks.
     """
+    # Seed the guard plus every input IT declares, read from the guard's own
+    # SNAPSHOT_INPUTS tuple rather than hand-listed here. Hand-listing is why
+    # this helper broke three times in two days: each new guard input silently
+    # invalidated every fixture until someone chased the failure back here.
+    guard = repo_root / "scripts" / "hooks" / "pre-commit"
     hooks_source = fixture_root / "scripts" / "hooks"
     hooks_source.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(repo_root / "scripts" / "hooks" / "pre-commit", hooks_source)
-    python_source = fixture_root / "scripts" / "python"
-    python_source.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(
-        repo_root / "scripts" / "python" / "validate_release_version.py", python_source
-    )
+    shutil.copy2(guard, hooks_source)
+
+    declared: list[str] = ["scripts/python/validate_release_version.py"]
+    tree = ast.parse(guard.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        for target in node.targets:
+            if isinstance(target, ast.Name) and target.id.endswith("_INPUTS"):
+                for element in getattr(node.value, "elts", []):
+                    if isinstance(element, ast.Constant) and isinstance(element.value, str):
+                        declared.append(element.value)
+    for rel in declared:
+        src = repo_root / rel
+        if not src.is_file():
+            continue  # conditional inputs (moat, typescript) may be absent
+        dst = fixture_root / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
     subprocess.run(
         ["/bin/bash", str(repo_root / "docs/install/install-pre-commit-hook.sh")],
         cwd=fixture_root,
@@ -275,6 +326,10 @@ class LaunchDependencyListHasOneHomeTest(unittest.TestCase):
                 self.assertIn(command, quickstart)
 
 
+@skip_in_host_independent_ci(
+    "probes real launchd entry points; launchctl does not exist on the Linux CI runner, "
+    "so these measure host infrastructure rather than repository behaviour"
+)
 class DoctorExternalEntryPointsTest(unittest.TestCase):
     """Exercise the existing external-entry block without running other phases.
 

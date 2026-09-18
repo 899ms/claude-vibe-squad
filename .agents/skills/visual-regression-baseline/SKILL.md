@@ -45,3 +45,12 @@ vs. accidental drift — a deterministic diff, not a screenshot glance.
 - Baseline promotion is explicit and attributed; dynamic-region masking is versioned with the baseline.
 - The tool's numeric diff is never the sole verdict — an out-of-tolerance unmasked delta blocks acceptance
   until reviewed, and a masked/tolerated delta is documented, not hidden.
+
+## When to invoke
+- The S4 required visual-verify gate of `project/web-app` and `project/game-production` (and any card that must
+  judge a UI/render change).
+
+## When NOT to invoke
+- No visual surface under test (headless/backend-only work).
+- As a substitute for accessibility (`wcag-conformance-audit`) or functional e2e — it verifies *looks-right*, not
+  *works-right* or *accessible*.

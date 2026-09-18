@@ -246,6 +246,7 @@ class PreparedWorktreeOutputs:
     generation: int = 0
     run_id: str = ""
     evidence_outputs: tuple[PreparedEvidenceOutput, ...] = ()
+    candidate_tree_health: dict[str, object] | None = None
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -2676,7 +2677,7 @@ def _verify_candidate_tree_health(
     worktree_root: Path,
     write_paths: Sequence[str],
     bridge_owned_paths: Sequence[str],
-) -> None:  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
+) -> dict[str, object]:  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     """Refuse code residue when the candidate adds a tree-health failure.
 
     ``board-supervisor.sh`` calls :func:`prepare_worktree_outputs` before it
@@ -2695,7 +2696,7 @@ def _verify_candidate_tree_health(
     bridge_owned = frozenset(bridge_owned_paths)
     candidate_scopes = tuple(path for path in write_paths if path not in bridge_owned)
     if not candidate_scopes:
-        return
+        return {"status": "skipped", "reason": "no candidate code scope"}
 
     try:
         candidate_root = Path(worktree_root).resolve(strict=True)
@@ -2704,7 +2705,7 @@ def _verify_candidate_tree_health(
             f"candidate tree health root is unavailable: {exc}"
         ) from exc
     if not (candidate_root / "shared/specialist-runtime-map.tsv").is_file():
-        return
+        return {"status": "skipped", "reason": "canonical runtime map is absent"}
 
     verifier = Path(RESIDUE_HEALTH_VERIFIER)
     if verifier.is_symlink() or not verifier.is_file():
@@ -2774,7 +2775,7 @@ def _verify_candidate_tree_health(
             f"candidate tree health check could not execute: {exc}"
         ) from exc
     if completed.returncode == 0:
-        return
+        return {"status": "passed", "candidate_exit": 0}
 
     # A whole-tree failure is not evidence that this attempt caused it. Compare
     # the exact same validator against the immutable merge-base between the
@@ -2877,7 +2878,13 @@ def _verify_candidate_tree_health(
                                         "owning CI/release boundary must clear it",
                                         file=sys.stderr,
                                     )
-                                    return
+                                    return {
+                                        "status": "inherited_failure",
+                                        "reason": "candidate diagnostics are already present at the admitted base",
+                                        "candidate_exit": completed.returncode,
+                                        "base_exit": base_completed.returncode,
+                                        "base_commit": base_commit,
+                                    }
         except (OSError, subprocess.TimeoutExpired) as exc:
             base_comparison_error = f"base comparison could not execute: {exc}"
 
@@ -2892,7 +2899,12 @@ def _verify_candidate_tree_health(
             "block it, and the owning CI/release boundary must evaluate it",
             file=sys.stderr,
         )
-        return
+        return {
+            "status": "fail_open",
+            "reason": base_comparison_error,
+            "candidate_exit": completed.returncode,
+            "base_exit": None,
+        }
 
     combined = "\n".join(
         part.strip()
@@ -3195,7 +3207,7 @@ def prepare_worktree_outputs(
             output.data,
             label=f"evidence output {output.relative_path}",
         )
-    _verify_candidate_tree_health(
+    candidate_tree_health = _verify_candidate_tree_health(
         Path(worktree_root),
         write_paths,
         (
@@ -3216,6 +3228,7 @@ def prepare_worktree_outputs(
         generation=int(generation) if isinstance(generation, int) else 0,
         run_id=run_id,
         evidence_outputs=tuple(prepared_evidence),
+        candidate_tree_health=candidate_tree_health,
     )
 
 
@@ -3434,6 +3447,7 @@ def publish_prepared_worktree_outputs(
         "artifact_sha256": _sha256_bytes(published_artifact_bytes),
         "artifact_promotions": promotions,
         "mode_exit_verification": mode_exit,
+        "candidate_tree_health": prepared.candidate_tree_health,
         "envelope_published": True,
         "envelope_idempotent": envelope_idempotent,
         "envelope_path": str(envelope_path),

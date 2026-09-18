@@ -35,7 +35,7 @@ MCPS=(
     # absence could never explain an outage, while FIRECRAWL_API_KEY -- which
     # three of the six tools require -- went unwatched.
     "chrono-research-arsenal|optional|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|FIRECRAWL_API_KEY PERPLEXITY_API_KEY XAI_API_KEY"
-    "chrono-media-studio|optional|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
+    "chrono-media-studio|optional|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|OPENAI_API_KEY XAI_API_KEY"
     "chrono-recon|optional|${CHRONO_PLUGINS}/chrono-recon/mcp_server.py|GH_TOKEN"
 )
 

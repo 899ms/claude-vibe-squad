@@ -101,7 +101,7 @@ def _result_detail(result: subprocess.CompletedProcess[str]) -> str:
     return (result.stderr or result.stdout or "no diagnostic output").strip()
 
 
-def _previous_public_tip(repo: Path, ledger_path: str | Path) -> str | None:
+def _previous_public_tip(repo: Path, ledger_path: str | Path) -> str:
     ledger = Path(ledger_path)
     if not ledger.is_absolute():
         ledger = repo / ledger

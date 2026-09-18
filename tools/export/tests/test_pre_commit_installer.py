@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -42,6 +43,11 @@ QUERY_OR_REMOVAL_OPTIONS = (
 )
 
 
+@unittest.skipUnless(
+    (REPO_ROOT / "shared/registries/skill-tool-registry.tsv").is_file(),
+    "private integration: full validator closure requires the withheld skill-tool "
+    "registry and capability baseline history; public snapshot controls run in tests/hooks",
+)
 class PreCommitInstallerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -57,13 +63,71 @@ class PreCommitInstallerTests(unittest.TestCase):
         self._git("config", "user.name", "Hook Test")
         self._git("config", "user.email", "hook-test@example.invalid")
 
-        installer = self.root / "docs/install/install-pre-commit-hook.sh"
-        guard = self.root / "scripts/hooks/pre-commit"
-        installer.parent.mkdir(parents=True)
-        guard.parent.mkdir(parents=True)
-        shutil.copy2(INSTALLER, installer)
-        shutil.copy2(GUARD, guard)
-        (self.root / "README.md").write_text("# fixture\n", encoding="utf-8")
+        # Keep fixture inputs tied to the installer and guard declarations.
+        sources = re.findall(r"^source_\w+=.*$", INSTALLER.read_text(encoding="utf-8"), re.MULTILINE)
+        if not sources:
+            raise ValueError(f"no reviewed source declarations found in {INSTALLER}")
+        paths = [INSTALLER.relative_to(REPO_ROOT).as_posix()]
+        for declaration in sources:
+            match = re.fullmatch(r'source_\w+="\$\{repo_root\}/([^"$`]+)"', declaration)
+            if match is None:
+                raise ValueError(f"unsupported installer source declaration: {declaration}")
+            paths.append(match.group(1))
+        paths.extend(runpy.run_path(str(GUARD))["SNAPSHOT_INPUTS"])
+        # Follow validator declarations across the full reviewed execution closure.
+        scanned = set()
+        modules = {}
+        original_path = sys.path[:]
+        try:
+            sys.path.insert(0, str(REPO_ROOT / "scripts/python"))
+            for relative in paths:
+                if relative in scanned:
+                    continue
+                scanned.add(relative)
+                if relative.endswith(".py"):
+                    source = REPO_ROOT / relative
+                    if not source.is_file():
+                        raise ValueError(f"missing reviewed installer fixture input: {source}")
+                    modules[source.stem] = runpy.run_path(str(source))
+                    paths.extend(modules[source.stem].get("INPUT_PATHS", ()))
+        finally:
+            sys.path[:] = original_path
+
+        # Runtime-selected files are not static inputs. Reuse the validators'
+        # discovery and policy templates so this fixture follows the same rows.
+        specialists = modules["validate_specialists"]["Validator"](REPO_ROOT)
+        paths.extend(path.relative_to(REPO_ROOT).as_posix()
+                     for path in specialists.specialist_files)
+        homes = modules["validate_capability_homes"]
+        rows = homes["runtime_rows"](REPO_ROOT)
+        adapters, issues = homes["load_adapters"](REPO_ROOT, rows)
+        if issues:
+            raise ValueError(f"invalid installer fixture adapters: {issues}")
+        paths.extend(adapter["adapter"] for adapter in adapters.values())
+        for policy in specialists.policy_rows("adapter_template"):
+            if policy[3] == "main_yaml_registration":
+                paths.append(f"model-lanes/{policy[1]}/main.yaml")
+
+        # The parity baseline is a Git object, not a repository file. Borrow the
+        # source object store read-only instead of inventing a fixture baseline.
+        baseline = homes["load_policy"](REPO_ROOT)["baseline_ref"]
+        homes["require_baseline_commit"](REPO_ROOT, baseline)
+        objects = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--path-format=absolute",
+             "--git-path", "objects"],
+            capture_output=True, text=True, check=True, env=self.env,
+        ).stdout.strip()
+        alternates = self.root / ".git/objects/info/alternates"
+        alternates.write_text(objects + "\n", encoding="utf-8")
+        for relative in dict.fromkeys(paths):
+            source = REPO_ROOT / relative
+            if Path(relative).is_absolute() or ".." in Path(relative).parts:
+                raise ValueError(f"non-relative installer fixture input: {relative}")
+            if not source.is_file():
+                raise ValueError(f"missing reviewed installer fixture input: {source}")
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, target)
         self._git("add", ".")
         self._git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "baseline")
 

@@ -16,7 +16,6 @@ sys.path.insert(0, str(EXPORT_DIR))
 
 import remote_ref_audit  # noqa: E402
 from remote_ref_audit import RemoteRefAuditError, audit_refs  # noqa: E402
-from projector import DEFAULT_LEDGER_PATH as PROJECTOR_LEDGER_PATH  # noqa: E402
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -172,7 +171,13 @@ class RemoteRefAuditTests(unittest.TestCase):
         self.assertTrue(records)
         self.assertTrue(all(r["status"].startswith("clean") for r in records))
 
+    @unittest.skipUnless(
+        (EXPORT_DIR / "target_scan.py").is_file(),
+        "private integration: projector imports the withheld target_scan.py",
+    )
     def test_default_ledger_path_matches_the_projector_oracle(self) -> None:
+        from projector import DEFAULT_LEDGER_PATH as PROJECTOR_LEDGER_PATH
+
         self.assertEqual(remote_ref_audit.DEFAULT_LEDGER_PATH, PROJECTOR_LEDGER_PATH)
 
     def _run_with_ledger(self, ledger: Path) -> subprocess.CompletedProcess[str]:

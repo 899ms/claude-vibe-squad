@@ -264,87 +264,11 @@ frontmatter_field() {
     " "$file"
 }
 
-parse_task_frontmatter() {
-    local file="$1"
-    python3 - "$file" <<'PYEOF'
-import json
-import re
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-try:
-    raw = path.read_bytes()
-except OSError as exc:
-    raise SystemExit(f"cannot read task file: {exc}") from exc
-if b"\0" in raw:
-    raise SystemExit("task file contains a NUL byte")
-try:
-    text = raw.decode("utf-8")
-except UnicodeDecodeError as exc:
-    raise SystemExit("task file is not valid UTF-8") from exc
-
-# Reject every non-newline separator that could split parser interpretations.
-LINE_SPLIT_LOOKALIKES = {
-    "\v": "\\v",
-    "\f": "\\f",
-    "\r": "\\r",
-    "\x1c": "\\x1c",
-    "\x1d": "\\x1d",
-    "\x1e": "\\x1e",
-    "\x85": "\\x85",
-    "\u2028": "U+2028",
-    "\u2029": "U+2029",
-}
-
-
-def reject_line_split_lookalikes(region: str) -> None:
-    for character, label in LINE_SPLIT_LOOKALIKES.items():
-        if character in region:
-            raise SystemExit(
-                "task frontmatter contains a non-newline line separator "
-                f"({label}); frontmatter lines must be separated by \\n only"
-            )
-
-
-lines = text.split("\n")
-if not lines or lines[0] != "---":
-    raise SystemExit("task file must begin with an exact '---' delimiter")
-try:
-    close = lines.index("---", 1)
-except ValueError as exc:
-    # Unterminated either way; naming the separator first keeps the diagnosis
-    # honest for a region whose only terminator is a lookalike-prefixed "---".
-    reject_line_split_lookalikes(text)
-    raise SystemExit("task frontmatter is unterminated") from exc
-reject_line_split_lookalikes("\n".join(lines[: close + 1]))
-
-key_pattern = re.compile(r"[A-Za-z_][A-Za-z0-9_-]*")
-fields = {}
-for line_number, line in enumerate(lines[1:close], start=2):
-    stripped = line.strip()
-    if not stripped or stripped.startswith("#"):
-        continue
-    if line[0].isspace():
-        raise SystemExit(
-            f"frontmatter line {line_number} must be one top-level key/value pair"
-        )
-    key, separator, raw_value = line.partition(":")
-    if not separator or not key_pattern.fullmatch(key):
-        raise SystemExit(f"frontmatter line {line_number} has an invalid key/value shape")
-    if key in fields:
-        raise SystemExit(f"frontmatter field '{key}' is duplicated")
-    if any(ord(character) < 0x20 for character in raw_value):
-        raise SystemExit(f"frontmatter field '{key}' contains a control character")
-    fields[key] = raw_value.strip()
-
-print(json.dumps(
-    {"schema": "send-task-frontmatter/v1", "fields": fields},
-    ensure_ascii=False,
-    separators=(",", ":"),
-))
-PYEOF
-}
+[[ -r "${SQUAD_CODE_ROOT}/shared/send-task-input-guards.sh" ]] \
+    || die "missing or unreadable send-task input guards: ${SQUAD_CODE_ROOT}/shared/send-task-input-guards.sh"
+# shellcheck source=../shared/send-task-input-guards.sh
+source "${SQUAD_CODE_ROOT}/shared/send-task-input-guards.sh" \
+    || die "failed to load send-task input guards: ${SQUAD_CODE_ROOT}/shared/send-task-input-guards.sh"
 
 task_frontmatter_field() {
     local field="$1"
@@ -864,6 +788,11 @@ if audit_path and audit_path.exists():
         server, tools_csv = match.groups()
         tools = {tool for tool in tools_csv.split(",") if tool and tool != "none"}
         tools_by_server.setdefault(server, set()).update(tools)
+else:
+    warnings.append(
+        "MCP tools/list audit unavailable: no audit log found; live tool availability "
+        "is UNMEASURED, and explicit MCP tool references still require tools/list proof"
+    )
 
 patterns = [
     re.compile(r"`?(chrono-[a-z-]+)`?\s+MCP server's\s+`?([A-Za-z_][A-Za-z0-9_]*)`?\s+tool", re.I),
@@ -1397,8 +1326,17 @@ except Exception as exc:
     print(f"predispatch error: cannot inspect write_scope promotion routes: {exc}", file=sys.stderr)
     sys.exit(2)
 def field(name):
-    m = re.search(rf"^{name}:\s*(.+)$", text, re.M)
+    m = re.search(rf"^{name}:[ \t]*([^\n]*)$", frontmatter, re.M)
     return m.group(1).strip() if m else ""
+lines = text.splitlines()
+if not lines or lines[0].strip() != "---":
+    print("predispatch error: missing task frontmatter block", file=sys.stderr)
+    sys.exit(2)
+end = next((i for i in range(1, len(lines)) if lines[i].strip() == "---"), None)
+if end is None:
+    print("predispatch error: unterminated task frontmatter block", file=sys.stderr)
+    sys.exit(2)
+frontmatter = "\n".join(lines[1:end])
 ret = field("return_artifact")
 ws  = field("write_scope").strip("[]")
 paths = [p.strip().strip("'\"") for p in ws.split(",") if p.strip()]
@@ -1481,7 +1419,12 @@ EXPECTED_INBOX="${VAULT_PHYS}/departments/${MAILBOX_NAMESPACE}/inbox"
 [[ -n "$INBOX_PHYS" && "$INBOX_PHYS" == "$EXPECTED_INBOX" ]] \
     || die "refusing to use mailbox outside the expected physical directory under VAULT_ROOT: ${INBOX}"
 
-echo "Dispatching ${TASK_ID} → ${TO_MODEL}/${SPECIALIST}"
+# The lane named "gemini" launches the `agy` binary (Antigravity), not the
+# retired gemini CLI. Printing the bare lane name has repeatedly led operators
+# and Chrono to describe it as "the gemini lane", which is wrong and has cost
+# real time. Show the binary alongside the lane until the lane is renamed.
+_lane_binary() { case "$1" in gemini) printf ' (agy)';; esac; }
+echo "Dispatching ${TASK_ID} → ${TO_MODEL}$(_lane_binary "${TO_MODEL}")/${SPECIALIST}"
 echo "  Model lane: ${TO_MODEL}  Specialist: ${SPECIALIST}  Source namespace: ${SOURCE_NAMESPACE}"
 echo "  Board inbox: departments/${MAILBOX_NAMESPACE}/inbox/${TASK_ID}.md"
 echo "  Board outbox: departments/${MAILBOX_NAMESPACE}/outbox/${TASK_ID}-response.md"
@@ -1550,7 +1493,25 @@ if [[ -f "$ACTIVE_REGISTRY" ]]; then
         || echo "WARNING: Active-task registry reconciliation failed (non-blocking)" >&2
 fi
 
-if [[ "$WRITE_SCOPE_JSON" != "[]" && -f "$ACTIVE_REGISTRY" ]]; then
+if [[ "$WRITE_SCOPE_JSON" != "[]" ]]; then
+    # Without the authoritative registry, absence of conflicts is normally
+    # unmeasured -- but a checkout that has NEVER dispatched has no descriptors
+    # either, and there an absent registry genuinely measures zero in-flight
+    # tasks. Refusing that case would deadlock the first dispatch on a fresh
+    # clone, which a public release creates by the hundred.
+    if [[ ! -f "$ACTIVE_REGISTRY" ]]; then
+        # Derive the descriptor directory from the registry's OWN location
+        # rather than from VAULT_ROOT: the two always live side by side, and
+        # this guard must not inherit the root-resolution fragility it exists
+        # to compensate for.
+        registry_dir="$(dirname -- "$ACTIVE_REGISTRY")"
+        if [[ -d "${registry_dir}/board-dispatch" ]] \
+           && compgen -G "${registry_dir}/board-dispatch/*.json" >/dev/null; then
+            die "write_scope check unavailable: active-task registry is missing: ${ACTIVE_REGISTRY}, but prior dispatch descriptors exist, so in-flight scopes are UNMEASURED. Restore the registry or reconcile it; refusing dispatch."
+        fi
+        info "write_scope: no active-task registry and no prior dispatch descriptors; treating this as the first dispatch on this checkout (zero in-flight tasks)."
+        printf '{}\n' > "$ACTIVE_REGISTRY"
+    fi
     info "Checking write_scope for conflicts..."
     if ! CONFLICT_RESULT=$(
         WRITE_SCOPE_JSON_VALUE="$WRITE_SCOPE_JSON" \
@@ -1559,17 +1520,31 @@ import json
 import os
 import sys
 
-with open(sys.argv[1], encoding="utf-8") as f:
-    registry = json.load(f)
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        registry = json.load(f)
+except (OSError, ValueError) as exc:
+    print(f"registry read failed: {sys.argv[1]}: {type(exc).__name__}: {exc}")
+    sys.exit(2)
+if not isinstance(registry, dict):
+    print(f"registry schema invalid: {sys.argv[1]}: expected an object")
+    sys.exit(2)
 
 scope_paths = json.loads(os.environ["WRITE_SCOPE_JSON_VALUE"])
 task_id = sys.argv[2]
 
 conflicts = []
 for active_id, active in registry.items():
+    if not isinstance(active, dict):
+        print(f"registry schema invalid: task {active_id} must be an object")
+        sys.exit(2)
     if active.get("status") != "in-flight":
         continue
-    for active_scope in active.get("write_scope", []):
+    active_scopes = active.get("write_scope", [])
+    if not isinstance(active_scopes, list) or any(not isinstance(p, str) for p in active_scopes):
+        print(f"registry schema invalid: task {active_id} write_scope must be a list of strings")
+        sys.exit(2)
+    for active_scope in active_scopes:
         for new_scope in scope_paths:
             if (new_scope == active_scope
                     or new_scope.startswith(active_scope.rstrip("/") + "/")
@@ -1583,7 +1558,10 @@ print("CLEAR")
 sys.exit(0)
 PYEOF
     ); then
-        die "write_scope blocked: ${CONFLICT_RESULT}. Resolve in-flight tasks first or adjust scope."
+        case "$CONFLICT_RESULT" in
+            CONFLICT:*) die "write_scope blocked: ${CONFLICT_RESULT}. Resolve in-flight tasks first or adjust scope." ;;
+            *) die "write_scope check failed: ${CONFLICT_RESULT:-checker returned no diagnostic}. Refusing dispatch because scope conflicts could not be determined." ;;
+        esac
     fi
 
     if [[ "$CONFLICT_RESULT" != "CLEAR" ]]; then

@@ -68,8 +68,9 @@ assigned once**, at candidate→finding, by `impact-validator` — never earlier
 
 - **Scope.** `scope_gate` + `exact_target_allowlist`: exact assets and exact pins, verified against the
   target rather than read off the program page. No scope laundering — a chain may not borrow authority
-  or impact from a sibling program. **An ambiguous scope STOPS**, and a scope orphan is a stop, not
-  advice.
+  or impact from a sibling program. **Ambiguous authorization stops offensive action on the affected
+  asset.** A possible scope orphan informs the operator's target selection; it does not stop research
+  within verified scope. Candidate payability is adjudicated at Phase 5.
 - **A balance difference is not impact** (`no_self_inflicted`). A fund-theft claim shows the victim debit
   AND the attacker-controlled destination credit, on both accounts.
 - **Safety and refusal rails travel in the packet**, because a detached lane never reads this file. **A
@@ -116,8 +117,9 @@ or the chain"* is an answer, so say so and name the phase that resolves it. **An
 2. **Meaningful live value or activity exists.**
 3. **An unprivileged actor controls an input that reaches a protected outcome**, or can acquire the
    required bearer artifact by an observable path. *This is the limb candidates most often fail.*
-4. **Flaw and impact land in the same scope.** A loss materialising in a sibling program is a scope
-   orphan and pays nothing.
+4. **Flaw and impact both land inside one program's asset list.** A scope orphan pays nothing, and it
+   cuts both ways: a loss materialising in a sibling program, or a root cause sitting in a file outside
+   the asset list while the impact lands in-scope.
 5. **Either a deployed change on the path to a protected outcome post-dates the last professional audit,
    or the surface is genuinely unsaturated.** Audit count is a negative weight; a recent unaudited
    deployed delta is the strongest positive signal available. "Bridge", "novel cryptography" are neither.
@@ -146,8 +148,10 @@ wrong tree.
   already filed. **"Would this grade Critical?" is a gating question, not a scoring one.** Record any
   conflict between fields to flag in the report; never resolve it by dropping candidates.
 - **`FACTS.md` contains:** the code location and commit, verified with `rev-parse` — never read off the
-  page · **a build canary, not a build description** · what is genuinely in scope, verified against the
-  pin, since program scope text has been wrong on every target we have audited · handwritten vs generated
+  page · **a build canary, not a build description** · **the in-scope asset list** — the program's
+  enumerated files, contracts, directories and addresses, quoted verbatim and verified against the pin,
+  since program scope text has been wrong on every target we have audited; accepted-impact classes do not
+  satisfy this element · handwritten vs generated
   LOC · **the payout rules quoted verbatim** · **the program's accepted-impact classes, quoted and
   UNRANKED** — that set is the coverage denominator and the PoC's success predicate, so never order them.
 - **Before hunting, confirm the deployed code is the audited code** — dependency and library versions
@@ -170,9 +174,12 @@ wrong tree.
 - **`FACTS.md` does NOT contain** a burn map, ranked leads, "top surfaces", class-wide kills, or a
   terminus register we authored. Resolve any "terminus" reference by **who wrote it**: the program's
   quoted classes travel to every lane; our own enumeration of where a win would come from is never built.
-- **One pre-hunt question, and only one: is the scope self-contained?** Name the single program whose
-  scope holds both a plausible flaw and its accepted impact. A **target-selection question for the
-  operator**, not a gate on the hunt.
+- **One pre-hunt question, and only one: is the scope self-contained?** Name the program whose quoted
+  rules could cover a plausible flaw and its accepted impact. Compare components encountered in
+  research or planning with that program's quoted asset list: impact in a listed contract does not by
+  itself put an unlisted root-cause file in scope, just as an in-scope flaw does not cover a sibling
+  program's impact. Unknown locations remain research questions. A **target-selection question for
+  the operator**, not a gate on the hunt or a demand to locate a flaw before it starts.
 
 ## Phase 2 — PLANNING (Chrono, inline)
 

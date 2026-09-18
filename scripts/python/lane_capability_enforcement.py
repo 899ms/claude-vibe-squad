@@ -26,6 +26,12 @@ CLAUDE_LIVE_SERVER_RE = re.compile(
     r"^(?:plugin:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+|[A-Za-z0-9_-]+)$"
 )
 CLAUDE_FIRST_PARTY_SERVERS = {
+    # First-party Anthropic connectors. Their display names carry dots and
+    # spaces, so they cannot match CLAUDE_LIVE_SERVER_RE and must be named here.
+    # A first-party connector that Anthropic ships and this map has not caught up
+    # with denies EVERY claude-lane launch, not just one specialist — which is
+    # what "Claude Docs" did on 2026-09-16 until it was added.
+    "claude.ai Claude Docs": ("claude-ai-claude-docs", "claude_ai_Claude_Docs"),
     "claude.ai Gmail": ("claude-ai-gmail", "claude_ai_Gmail"),
     "claude.ai Google Calendar": (
         "claude-ai-google-calendar",

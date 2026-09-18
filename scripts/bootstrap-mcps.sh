@@ -72,7 +72,7 @@ MCPS=(
     # runtime value; scripts/python/tests/test_research_credential_single_source.py
     # pins it (and the two other copies) to the owning tuple.
     "chrono-research-arsenal|${CHRONO_PLUGINS}/chrono-research-arsenal/mcp_server.py|XAI_API_KEY PERPLEXITY_API_KEY FIRECRAWL_API_KEY"
-    "chrono-media-studio|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|GEMINI_API_KEY OPENAI_API_KEY XAI_API_KEY"
+    "chrono-media-studio|${CHRONO_PLUGINS}/chrono-media-studio/mcp_server.py|OPENAI_API_KEY XAI_API_KEY"
 )
 
 # Compute env flags for a given mcp's env-var-name list

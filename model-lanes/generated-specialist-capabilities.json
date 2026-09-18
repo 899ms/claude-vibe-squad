@@ -2065,7 +2065,32 @@
       "adapter": "model-lanes/claude/.claude/agents/experimental-attacker.md",
       "coverage": "partial",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-dedup",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [],
         "tools": [
           {
@@ -2139,16 +2164,13 @@
       "lane": "claude",
       "limitations": [
         "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
-        "declares only capabilities already proven on the claude lane by an existing claude entry; anything the codex route carries but claude has not demonstrated is treated as lane-not-wired rather than assumed"
+        "declares only capabilities already proven on the claude lane by an existing claude entry; anything the codex route carries but claude has not demonstrated is treated as lane-not-wired rather than assumed",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
-        "chrono-dedup",
         "chrono-recon",
         "chrono-research-arsenal",
         "chrono-vault",
-        "guarded-semgrep",
-        "guarded-slither",
-        "guarded-solodit",
         "sequential-thinking"
       ],
       "primary_plan": [],
@@ -2178,7 +2200,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
-      "surface_sha256": "ce149d16a6169684b3fecfcc00e4cdd26289d28af11bb625348efaab938b143b",
+      "surface_sha256": "0c5e812a2aa2debd603c6f5ad6db3e5c8bb3491f2fafdcce64074b0df031fb8b",
       "tools": [
         "aderyn",
         "amass",
@@ -2226,20 +2248,26 @@
       "known_unavailable": {
         "mcps": [
           {
-            "availability": "probe-failed",
-            "evidence": "pending-reprobe",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-dedup",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "guarded-semgrep",
             "requirement": "preferred"
           },
           {
-            "availability": "probe-failed",
-            "evidence": "pending-reprobe",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "guarded-slither",
             "requirement": "preferred"
           },
           {
-            "availability": "probe-failed",
-            "evidence": "pending-reprobe",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "guarded-solodit",
             "requirement": "preferred"
           }
@@ -2301,8 +2329,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "mcp-operation",
-            "evidence": "chrono-dedup",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -2342,10 +2370,10 @@
       "limitations": [
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
         "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
-        "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
+        "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
-        "chrono-dedup",
         "chrono-recon",
         "chrono-research-arsenal",
         "chrono-vault",
@@ -2359,15 +2387,6 @@
           "kind": "mcps",
           "provider_lane": "gpt-codex",
           "requirement": "required",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -2424,7 +2443,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
-      "surface_sha256": "1dc91c6c94aecdee69413b85ee2896c414fda939dbde9859dd17badc7863685d",
+      "surface_sha256": "a9acf740462ca01ad356d7b1298eee25e3d6db023dc60af31063759af14d827d",
       "tools": [
         "aderyn",
         "anchor",
@@ -2476,7 +2495,14 @@
       "adapter": "model-lanes/kimi/.kimi/agents/experimental-attacker.yaml",
       "coverage": "partial",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "lead:chrono-dedup",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [],
         "tools": [
           {
@@ -2546,10 +2572,10 @@
         "all shared authored audit and exploit-construction skills are live on this lane, but Kimi exposes no shell or local executable surface; every host CLI is tracked as lane-not-wired and intentionally omitted from the live adapter projection",
         "research MCP operations are lead-brokered and unavailable inside Kimi subagents; the tracked operation ids require a Kimi-lead or Chrono handoff rather than a direct child tool call",
         "prior_art_check remains lead-brokered; board workers are network-isolated and only the local chrono-vault source is expected to succeed, while web sources including Solodit require Chrono-side invocation",
-        "WebFetch remains harness-only, and active scanners or exploit execution remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
+        "WebFetch remains harness-only, and active scanners or exploit execution remain bounded by target scope, rules of engagement, and the offensive_execution operator gate",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
-        "lead:chrono-dedup",
         "lead:chrono-vault",
         "lead:sequential-thinking"
       ],
@@ -2580,7 +2606,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "experimental-attacker",
-      "surface_sha256": "7d8cc298e3da22d01edbd07f580bb3bb98365569c7a11ab5b909871a302d6909",
+      "surface_sha256": "375323ecc8a16835f842531cab7fd3ecbd4efa40568865c72dfff87bf536a2c9",
       "tools": [
         "aderyn",
         "amass",
@@ -2636,7 +2662,26 @@
       "adapter": "model-lanes/claude/.claude/agents/exploit-developer.md",
       "coverage": "partial",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [
           {
             "availability": "needs-operator-install",
@@ -2751,9 +2796,6 @@
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
-        "guarded-semgrep",
-        "guarded-slither",
-        "guarded-solodit",
         "sequential-thinking"
       ],
       "primary_plan": [],
@@ -2766,7 +2808,7 @@
         "systematic-bug-hunting"
       ],
       "specialist": "exploit-developer",
-      "surface_sha256": "a60446865054f1199a9e3b09dacb17458dfc697d4c32c30787012764ce773e45",
+      "surface_sha256": "9b82da5577802f8dc30c81ed79be647eb8ed4421a33d1ffbffc96baa9f9d3880",
       "tools": [
         "aderyn",
         "angr",
@@ -2791,7 +2833,32 @@
       "adapter": "model-lanes/gpt-codex/.codex/agents/exploit-developer.toml",
       "coverage": "full",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-dedup",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [],
         "tools": [
           {
@@ -2843,8 +2910,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "mcp-operation",
-            "evidence": "chrono-dedup",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -2870,15 +2937,12 @@
       },
       "lane": "gpt-codex",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
-        "chrono-dedup",
         "chrono-research-arsenal",
         "chrono-vault",
-        "guarded-semgrep",
-        "guarded-slither",
-        "guarded-solodit",
         "sequential-thinking"
       ],
       "primary_plan": [
@@ -2892,45 +2956,9 @@
           "resolution": "local"
         },
         {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
           "capability_id": "chrono-research-arsenal",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-semgrep",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-semgrep",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-slither",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-slither",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-solodit",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-solodit",
           "kind": "mcps",
           "provider_lane": "gpt-codex",
           "requirement": "preferred",
@@ -2957,7 +2985,7 @@
         "systematic-bug-hunting"
       ],
       "specialist": "exploit-developer",
-      "surface_sha256": "05282ba0425d0660d43df9e09f399de3593a962886d47cea487fe45c9a3cf883",
+      "surface_sha256": "7232a46970be1ae02b49214a96a10996b714402aeaf008e42d18c98c05d0e34b",
       "tools": [
         "aderyn",
         "angr",
@@ -3728,7 +3756,14 @@
       "adapter": "model-lanes/claude/.claude/agents/impact-validator.md",
       "coverage": "full",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-dedup",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [
           {
             "availability": "needs-operator-install",
@@ -3769,8 +3804,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "mcp-operation",
-            "evidence": "chrono-dedup",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -3790,10 +3825,10 @@
       },
       "lane": "claude",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
-        "chrono-dedup",
         "chrono-research-arsenal",
         "chrono-vault",
         "sequential-thinking"
@@ -3806,15 +3841,6 @@
           "kind": "mcps",
           "provider_lane": "claude",
           "requirement": "required",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -3842,7 +3868,7 @@
         "systematic-attacking"
       ],
       "specialist": "impact-validator",
-      "surface_sha256": "eddd19cea44b230c7de1fd3cbe53cd7b59addf1f56b0e1cc77a57586da6578d2",
+      "surface_sha256": "6e98d8f904861a61ec2f9555857b6fd13be258932a6d188e05f8789378a3a6f4",
       "tools": []
     },
     {
@@ -5754,12 +5780,19 @@
       "adapter": "model-lanes/gpt-codex/.codex/agents/red-team-operator.toml",
       "coverage": "full",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-dedup",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [],
         "tools": [
           {
-            "availability": "mcp-operation",
-            "evidence": "chrono-dedup",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -5773,23 +5806,14 @@
       },
       "lane": "gpt-codex",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
-        "chrono-dedup",
         "chrono-vault",
         "sequential-thinking"
       ],
       "primary_plan": [
-        {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
         {
           "capability_id": "chrono-vault",
           "evidence": "capsource-generated-runtime-tool-summary",
@@ -5811,7 +5835,7 @@
       ],
       "skills": [],
       "specialist": "red-team-operator",
-      "surface_sha256": "9b925b0a1b714a393d40624224d41af739c0e778a1ff638add7c132611680f8e",
+      "surface_sha256": "24c4a2d369855f3c334b106e237a42c7f314bc50f910109991a8f479c3606f36",
       "tools": []
     },
     {
@@ -6392,7 +6416,14 @@
       "adapter": "model-lanes/claude/.claude/agents/scout.md",
       "coverage": "full",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-dedup",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [
           {
             "availability": "needs-operator-install",
@@ -6469,8 +6500,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "mcp-operation",
-            "evidence": "chrono-dedup",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -6496,11 +6527,11 @@
       },
       "lane": "claude",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
         "chrome-devtools",
-        "chrono-dedup",
         "chrono-recon",
         "chrono-research-arsenal",
         "chrono-vault",
@@ -6536,15 +6567,6 @@
           "resolution": "local"
         },
         {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
           "capability_id": "chrono-recon",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-recon",
@@ -6574,7 +6596,7 @@
       ],
       "skills": [],
       "specialist": "scout",
-      "surface_sha256": "7b04017dddf2fbfb512f2b26586d445613c79b602136d9f69ae0d2aa4e9c804d",
+      "surface_sha256": "1fde4a52b2c0b6dd0d02e67ae64818bb4abe011c32aa087f9792f3689b6b120a",
       "tools": [
         "amass",
         "gowitness",
@@ -6669,6 +6691,7 @@
         "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
       ],
       "mcps": [
+        "chrome-devtools",
         "chrono-research-arsenal",
         "chrono-vault",
         "sequential-thinking"
@@ -6676,10 +6699,8 @@
       "primary_plan": [],
       "skills": [],
       "specialist": "scraping-engineer",
-      "surface_sha256": "f789ca03e6cdbc636b57cdec8f9fecc47f1f1513da15e5625169bb8f91a07a17",
-      "tools": [
-        "chrome-devtools"
-      ]
+      "surface_sha256": "8dbc2ff29c9e54a49c7f30d1bca624a5db4ad5e35d565efe47dccdc59729bb90",
+      "tools": []
     },
     {
       "adapter": "model-lanes/gpt-codex/.codex/agents/scraping-engineer.toml",
@@ -6794,7 +6815,26 @@
       "adapter": "model-lanes/claude/.claude/agents/security-analyst.md",
       "coverage": "partial",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [],
         "tools": [
           {
@@ -6849,9 +6889,6 @@
         "chrono-recon",
         "chrono-research-arsenal",
         "chrono-vault",
-        "guarded-semgrep",
-        "guarded-slither",
-        "guarded-solodit",
         "sequential-thinking"
       ],
       "primary_plan": [],
@@ -6879,7 +6916,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "security-analyst",
-      "surface_sha256": "78246460d0b13d3d102459a21d0f7306afe3dcf4923934f8eb398881a0d0f3b6",
+      "surface_sha256": "a3cd4fa14572ee706695e264d7c433f39938bc1d43f0ae3895fb8cbc0e3a1cff",
       "tools": [
         "aderyn",
         "anchor",
@@ -6913,7 +6950,26 @@
       "adapter": "model-lanes/gpt-codex/.codex/agents/security-analyst.toml",
       "coverage": "full",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [],
         "tools": [
           {
@@ -6968,9 +7024,6 @@
         "chrono-recon",
         "chrono-research-arsenal",
         "chrono-vault",
-        "guarded-semgrep",
-        "guarded-slither",
-        "guarded-solodit",
         "sequential-thinking"
       ],
       "primary_plan": [
@@ -6996,33 +7049,6 @@
           "capability_id": "chrono-research-arsenal",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "chrono-research-arsenal",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-semgrep",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-semgrep",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-slither",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-slither",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-solodit",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-solodit",
           "kind": "mcps",
           "provider_lane": "gpt-codex",
           "requirement": "preferred",
@@ -7062,7 +7088,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "security-analyst",
-      "surface_sha256": "24ec7bc50f7b376602e343ff4888fcb4705043326e7abdfa20e352d3c1d117c3",
+      "surface_sha256": "e248127d1c551f8d1e837a489d9732f9691b073f7ee761c29ff0ec01a5774153",
       "tools": [
         "aderyn",
         "anchor",
@@ -7237,7 +7263,32 @@
       "adapter": "model-lanes/claude/.claude/agents/smart-contract-engineer.md",
       "coverage": "partial",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-dedup",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [
           {
             "availability": "superseded",
@@ -7272,8 +7323,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "mcp-operation",
-            "evidence": "chrono-dedup",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -7293,15 +7344,12 @@
       },
       "lane": "claude",
       "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
-        "chrono-dedup",
         "chrono-research-arsenal",
         "chrono-vault",
-        "guarded-semgrep",
-        "guarded-slither",
-        "guarded-solodit",
         "sequential-thinking"
       ],
       "primary_plan": [],
@@ -7312,7 +7360,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "smart-contract-engineer",
-      "surface_sha256": "0e425e163b9c44bf283cfe8c53e4debadfaaf8635255ac495c8a78fe7f29c153",
+      "surface_sha256": "b0e71aabdd8a7dfdb529384cd700fb5a0c852135bb82630837d35d828ac9c89b",
       "tools": [
         "aderyn",
         "anchor",
@@ -7329,7 +7377,26 @@
       "adapter": "model-lanes/gpt-codex/.codex/agents/smart-contract-engineer.toml",
       "coverage": "full",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-semgrep",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-slither",
+            "requirement": "preferred"
+          },
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "guarded-solodit",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [
           {
             "availability": "superseded",
@@ -7382,9 +7449,6 @@
       "mcps": [
         "chrono-research-arsenal",
         "chrono-vault",
-        "guarded-semgrep",
-        "guarded-slither",
-        "guarded-solodit",
         "sequential-thinking"
       ],
       "primary_plan": [
@@ -7407,33 +7471,6 @@
           "resolution": "local"
         },
         {
-          "capability_id": "guarded-semgrep",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-semgrep",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-slither",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-slither",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "guarded-solodit",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "guarded-solodit",
-          "kind": "mcps",
-          "provider_lane": "gpt-codex",
-          "requirement": "preferred",
-          "resolution": "local"
-        },
-        {
           "capability_id": "sequential-thinking",
           "evidence": "capsource-generated-runtime-tool-summary",
           "id": "sequential-thinking",
@@ -7450,7 +7487,7 @@
         "vulnhunter-solana"
       ],
       "specialist": "smart-contract-engineer",
-      "surface_sha256": "07912e2f31af2f8bfc63b151a96934992d30126c20237aa9660aac163e78e2a3",
+      "surface_sha256": "db1a0f10bc9c06e934bacc58d56ed7c909ba1b85da0be1008b640c07735a5cf4",
       "tools": [
         "aderyn",
         "anchor",
@@ -8697,7 +8734,14 @@
       "adapter": "model-lanes/claude/.claude/agents/threat-modeler.md",
       "coverage": "full",
       "known_unavailable": {
-        "mcps": [],
+        "mcps": [
+          {
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
+            "id": "chrono-dedup",
+            "requirement": "preferred"
+          }
+        ],
         "skills": [],
         "tools": [
           {
@@ -8713,8 +8757,8 @@
             "requirement": "preferred"
           },
           {
-            "availability": "mcp-operation",
-            "evidence": "chrono-dedup",
+            "availability": "needs-operator-install",
+            "evidence": "operator-install-required",
             "id": "prior_art_check",
             "requirement": "preferred"
           },
@@ -8734,10 +8778,10 @@
       },
       "lane": "claude",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "mcps": [
-        "chrono-dedup",
         "chrono-research-arsenal",
         "chrono-vault",
         "sequential-thinking"
@@ -8750,15 +8794,6 @@
           "kind": "mcps",
           "provider_lane": "claude",
           "requirement": "required",
-          "resolution": "local"
-        },
-        {
-          "capability_id": "chrono-dedup",
-          "evidence": "capsource-generated-runtime-tool-summary",
-          "id": "chrono-dedup",
-          "kind": "mcps",
-          "provider_lane": "claude",
-          "requirement": "preferred",
           "resolution": "local"
         },
         {
@@ -8793,7 +8828,7 @@
         "systematic-bug-hunting"
       ],
       "specialist": "threat-modeler",
-      "surface_sha256": "53c308f994c795ede571f1c5727d03c37cd6155e2ae17a854f2b7471e9ba481b",
+      "surface_sha256": "d33030e1f24681cdfd9d2e1b5a917ee11e7b6a8c0c64926004de01d0437df2f8",
       "tools": []
     },
     {
@@ -9616,6 +9651,6 @@
   "policy_sha256": "bab751e4fc6e80318b22b12cb5f6865560c1fc1a005a2c3e76c2151c7766ded7",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "f2c9c0c31b09cd444afd59058a071c68dee12283d74268f3525bea2b0a193673",
-  "surface_count": 113
+  "source_sha256": "7dd25cb116e2a776985f507f0183f9ef503bf381ae192cd5b5f00ba8f81a6b2b",
+  "surface_count": 112
 }

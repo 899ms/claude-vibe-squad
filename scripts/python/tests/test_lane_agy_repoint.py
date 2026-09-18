@@ -125,6 +125,57 @@ class AgyLaneRepointTests(unittest.TestCase):
         self.assertIn("agent_system_context.rstrip()", launcher)
         self.assertIn(dcb.AGY_EXTERNAL_MCP_MAX_CALLS_FIELD, launcher)
 
+    def test_board_bounds_agy_print_mode_by_the_board_wall(self) -> None:
+        """agy's print mode must not impose its own deadline on a lane.
+
+        Measured 2026-09-14: four gemini dispatches over three days returned a
+        truncated stub with returncode 0 and the line "[agy] print timeout after
+        5m0s with turn in progress; returning partial output". `agy --help`
+        documents `--print-timeout` with a 5m0s default, and a probe with an
+        explicit `--print-timeout 20s` reproduced the same message carrying the
+        supplied value and still exited 0 -- so the flag is the source of the
+        deadline, and its absence silently capped every gemini lane at five
+        minutes while every other lane ran to the board's wall.
+
+        Exit 0 is why it went unnoticed for three days: the board cannot tell a
+        truncated turn from a finished one, so it promoted the stub.
+        """
+        source = (ROOT / "bin" / "board-supervisor.sh").read_text(
+            encoding="utf-8"
+        )
+        launcher = source.split("    def gemini_ordered_launcher(", 1)[1].split(
+            "\n    def kimi_role_launcher(", 1
+        )[0]
+        self.assertIn('"--print-timeout"', launcher)
+        # Derived from the board's own wall, never a second hardcoded number.
+        # Two independently written deadlines is how this drifts back.
+        self.assertIn("launch_timeout", launcher)
+
+    def test_board_fails_loudly_on_an_agy_truncated_turn(self) -> None:
+        """A truncated agy turn exits 0; the board must not promote it.
+
+        The deadline fix stops agy's timer firing first, but nothing about
+        returncode 0 tells a half-finished turn from a finished one. Measured:
+        `agy --print-timeout 20s` on a long prompt exits 0 with partial output
+        and this marker; the positive control -- a prompt that completes --
+        emits the marker zero times, so it discriminates.
+        """
+        source = (ROOT / "bin" / "board-supervisor.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('transcript_line.startswith("[agy] print timeout after")', source)
+        # Scoped to the lane and anchored at line start: a worker that QUOTES
+        # the marker in an artifact must not be read as having truncated.
+        detector = source.split(
+            "    # A truncated agy turn exits ZERO.", 1
+        )[1].split("observed_memory_ids = set()", 1)[0]
+        self.assertIn('lane == "gemini"', detector)
+        self.assertIn('failure_class="timeout"', detector)
+        # Per-line and anchored, not a substring search over the whole blob:
+        # that is what keeps a quoted marker from reading as a truncation.
+        self.assertIn("splitlines()", detector)
+        self.assertIn(".startswith(", detector)
+
     def test_board_does_not_override_agy_login_with_gemini_api_key(self) -> None:
         source = (ROOT / "bin" / "board-supervisor.sh").read_text(
             encoding="utf-8"

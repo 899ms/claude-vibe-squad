@@ -1,8 +1,11 @@
-"""Focused, isolated tests; run this file directly, never discovery/bin/test."""
+"""Root-resolution and migration-reporter tests; safe for unittest discovery."""
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
+import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -11,6 +14,34 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import validate_root_split as validator
+
+ROOT = Path(__file__).resolve().parents[3]
+
+
+def probe_vault_root(root, cwd, overrides=None):
+    """Exercise the current public APIs, independent of the migration reporter.
+
+    Preserve exit codes and stderr: a missing API, failed source, empty output,
+    and an inherited hostile value must not become indistinguishable passes.
+    """
+    env = {"PATH": os.defpath, "HOME": str(cwd), "PYTHONDONTWRITEBYTECODE": "1"}
+    env.update(overrides or {})
+    python = (
+        "import importlib.util,sys; "
+        "s=importlib.util.spec_from_file_location('root_probe',sys.argv[1]); "
+        "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+        "print(m.resolve_vault_root())"
+    )
+    commands = {
+        "python": [sys.executable, "-I", "-B", "-c", python,
+                   str(root / "scripts/python/repo_root.py")],
+        "shell": ["/bin/bash", "--noprofile", "--norc", "-c",
+                  'source "$1" || exit $?; printf "%s\\n" "${VAULT_ROOT-}"',
+                  "root-probe", str(root / "shared/repo-root.sh")],
+    }
+    return {name: subprocess.run(command, env=env, cwd=cwd, capture_output=True,
+                                 text=True, timeout=10)
+            for name, command in commands.items()}
 
 
 class LiteralInvariantTests(unittest.TestCase):
@@ -101,10 +132,58 @@ class EnumerationTests(unittest.TestCase):
 
 class ResolverProbeTests(unittest.TestCase):
     def test_current_resolvers_ignore_exported_squad_code_root(self):
-        root = Path(__file__).resolve().parents[3]
-        for result in validator.probe_code_root(root):
-            with self.subTest(resolver=result["resolver"]):
-                self.assertEqual(result["status"], "PASS", result["detail"])
+        with tempfile.TemporaryDirectory() as tmp:
+            results = probe_vault_root(ROOT, Path(tmp), {
+                "SQUAD_CODE_ROOT": str(Path(tmp) / "hostile-code-root")})
+        self.assertEqual(set(results), {"python", "shell"})
+        for name, proc in results.items():
+            with self.subTest(resolver=name):
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stderr, "")
+                # Independent source: this test is scripts/python/tests/<file>.
+                self.assertEqual(proc.stdout.strip(), str(ROOT))
+
+    def test_current_api_probe_detects_hostile_noop_and_missing_resolvers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "shared").mkdir()
+            (root / "scripts/python").mkdir(parents=True)
+            hostile = str(root / "hostile-code-root")
+            fixtures = {
+                "hostile": ('VAULT_ROOT="$SQUAD_CODE_ROOT"\n',
+                            'import os\ndef resolve_vault_root():\n    return os.environ["SQUAD_CODE_ROOT"]\n'),
+                "noop": (':\n', 'def resolve_vault_root():\n    return ""\n'),
+                "missing_api": ('return 9\n', '# no resolver API\n'),
+            }
+            for case, (shell, python) in fixtures.items():
+                (root / "shared/repo-root.sh").write_text(shell)
+                (root / "scripts/python/repo_root.py").write_text(python)
+                results = probe_vault_root(root, root, {"SQUAD_CODE_ROOT": hostile})
+                self.assertEqual(set(results), {"python", "shell"})
+                for name, proc in results.items():
+                    with self.subTest(case=case, resolver=name):
+                        self.assertNotEqual(proc.stdout.strip(), str(root))
+                        if case == "hostile":
+                            self.assertEqual(proc.returncode, 0, proc.stderr)
+                            self.assertEqual(proc.stdout.strip(), hostile)
+                        elif case == "noop":
+                            self.assertEqual(proc.returncode, 0, proc.stderr)
+                            self.assertEqual(proc.stdout.strip(), "")
+                        elif name == "python":
+                            self.assertNotEqual(proc.returncode, 0)
+                            self.assertIn("AttributeError", proc.stderr)
+                        else:
+                            self.assertEqual(proc.returncode, 9)
+                            self.assertEqual(proc.stdout, "")
+
+    def test_migration_reporter_requires_the_unimplemented_split_api(self):
+        # The September split-API revert left this reporter intact. FAIL here
+        # means the split API is absent, not that VAULT_ROOT was redirected.
+        results = validator.probe_code_root(ROOT)
+        self.assertEqual([r["resolver"] for r in results], ["python", "shell"])
+        self.assertEqual([r["status"] for r in results], ["FAIL", "FAIL"])
+        self.assertIn("AttributeError", results[0]["detail"])
+        self.assertIn("hostile-code-root", results[1]["detail"])
 
     def test_positive_control_detects_resolvers_honoring_environment(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -115,12 +194,131 @@ class ResolverProbeTests(unittest.TestCase):
             (root / "scripts/python/repo_root.py").write_text(
                 'import os\ndef resolve_code_root():\n    return os.environ["SQUAD_CODE_ROOT"]\n')
             results = validator.probe_code_root(root)
+            self.assertEqual([r["resolver"] for r in results], ["python", "shell"])
             self.assertEqual([r["status"] for r in results], ["FAIL", "FAIL"])
             self.assertTrue(all("hostile-code-root" in r["detail"] for r in results))
 
     def test_missing_resolvers_are_not_a_pass(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertTrue(all(r["status"] != "PASS" for r in validator.probe_code_root(Path(tmp).resolve())))
+            results = validator.probe_code_root(Path(tmp).resolve())
+            self.assertEqual([r["resolver"] for r in results], ["python", "shell"])
+            self.assertTrue(all(r["status"] != "PASS" for r in results))
+
+
+class RootFailureTests(unittest.TestCase):
+    def test_interactive_sourcing_refuses_without_exiting_the_session(self):
+        proc = subprocess.run(
+            ["/bin/bash", "--noprofile", "--norc", "-ic",
+             'source "$1"; rc=$?; printf "source_exit=%s root=%s\\n" "$rc" "${VAULT_ROOT-unset}"',
+             "probe", str(ROOT / "shared/repo-root.sh")],
+            env={"PATH": os.defpath}, capture_output=True, text=True, timeout=10)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "source_exit=1 root=unset\n")
+        self.assertIn("interactive sourcing is unsupported", proc.stderr)
+
+    def test_all_wrapper_preambles_abort_with_loud_invalid_root_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            (root / "shared").mkdir()
+            (root / "bin").mkdir()
+            shutil.copyfile(ROOT / "shared/repo-root.sh", root / "shared/repo-root.sh")
+            checked = []
+            for path in sorted((ROOT / "bin").iterdir()):
+                if not path.is_file():
+                    continue
+                lines = path.read_text(errors="replace").splitlines()
+                sources = [i for i, line in enumerate(lines)
+                           if line.startswith("source ") and "/shared/repo-root.sh" in line]
+                if not sources:
+                    continue
+                self.assertEqual(len(sources), 1, path.name)
+                index = sources[0]
+                # Only shell option settings and the actual source line run;
+                # wrapper bodies may launch processes or mutate live state.
+                options = [line for line in lines[:index]
+                           if re.fullmatch(r"set -[A-Za-z]+(?: pipefail)?", line)]
+                wrapper = root / "bin" / path.name
+                wrapper.write_text("\n".join(options + [lines[index], 'echo CONTINUED']) + "\n")
+                for valid in (False, True):
+                    env = {"PATH": os.defpath, "VAULT_ROOT": str(root if valid else root / "missing")}
+                    proc = subprocess.run(["/bin/bash", str(wrapper)], env=env,
+                                          capture_output=True, text=True, timeout=10)
+                    with self.subTest(wrapper=path.name, valid=valid):
+                        self.assertEqual(proc.returncode, 0 if valid else 1, proc.stderr)
+                        self.assertEqual(proc.stdout, "CONTINUED\n" if valid else "")
+                        if valid:
+                            self.assertEqual(proc.stderr, "")
+                        else:
+                            self.assertIn("VAULT_ROOT is not a directory:", proc.stderr)
+                checked.append(path.name)
+            self.assertIn("squad", checked)
+            self.assertIn("send-task.sh", checked)
+            self.assertGreater(len(checked), 30)
+
+    def test_conditionals_cannot_swallow_initialization_failure(self):
+        for source in ('source "$1"', 'if source "$1"; then :; fi', 'source "$1" || :'):
+            with self.subTest(source=source):
+                proc = subprocess.run(
+                    ["/bin/bash", "-c", source + '; echo CONTINUED', "probe",
+                     str(ROOT / "shared/repo-root.sh")],
+                    env={"PATH": os.defpath, "VAULT_ROOT": str(ROOT / "missing-root-control")},
+                    capture_output=True, text=True, timeout=10)
+                self.assertEqual(proc.returncode, 1)
+                self.assertEqual(proc.stdout, "")
+                self.assertIn("VAULT_ROOT is not a directory:", proc.stderr)
+
+    def test_both_resolvers_diagnose_mismatch_and_preserve_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            other = Path(tmp).resolve()
+            for name, proc in probe_vault_root(ROOT, other, {"VAULT_ROOT": str(other)}).items():
+                with self.subTest(resolver=name):
+                    self.assertEqual(proc.returncode, 0, proc.stderr)
+                    self.assertEqual(proc.stdout.strip(), str(other))
+                    self.assertIn("overrides location-derived root " + str(ROOT), proc.stderr)
+                    self.assertIn("unset VAULT_ROOT", proc.stderr)
+
+    def test_equivalent_symlink_override_stays_verbatim_and_quiet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            link = Path(tmp) / "same checkout"
+            link.symlink_to(ROOT, target_is_directory=True)
+            for value in (str(ROOT), str(link)):
+                for name, proc in probe_vault_root(ROOT, Path(tmp), {"VAULT_ROOT": value}).items():
+                    with self.subTest(resolver=name, value=value):
+                        self.assertEqual(proc.returncode, 0, proc.stderr)
+                        self.assertEqual(proc.stdout.strip(), value)
+                        self.assertEqual(proc.stderr, "")
+
+    def test_both_resolvers_reject_relative_and_missing_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for value, message in ((".", "must be an absolute path"),
+                                   (str(Path(tmp) / "missing"), "is not a directory")):
+                for name, proc in probe_vault_root(ROOT, Path(tmp), {"VAULT_ROOT": value}).items():
+                    with self.subTest(resolver=name, value=value):
+                        self.assertNotEqual(proc.returncode, 0)
+                        self.assertEqual(proc.stdout, "")
+                        self.assertIn(message, proc.stderr)
+
+    def test_readlink_failure_is_loud_and_does_not_fabricate_a_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            link = Path(tmp) / "root-link.sh"
+            link.symlink_to(ROOT / "shared/repo-root.sh")
+            for failing in (False, True):
+                code = 'source "$1"; '
+                if failing:
+                    code += 'readlink() { return 9; }; '
+                code += 'vs_resolve_symlink "$2"'
+                proc = subprocess.run(["/bin/bash", "-c", code, "probe",
+                                       str(ROOT / "shared/repo-root.sh"), str(link)],
+                                      env={"PATH": os.defpath}, capture_output=True,
+                                      text=True, timeout=10)
+                with self.subTest(failing=failing):
+                    self.assertEqual(proc.returncode, 1 if failing else 0)
+                    if failing:
+                        self.assertEqual(proc.stdout, "")
+                        self.assertIn("readlink failed resolving", proc.stderr)
+                    else:
+                        self.assertEqual(proc.stdout.strip(), str(ROOT / "shared/repo-root.sh"))
+                        self.assertEqual(proc.stderr, "")
 
 
 class ReportingOnlyTests(unittest.TestCase):

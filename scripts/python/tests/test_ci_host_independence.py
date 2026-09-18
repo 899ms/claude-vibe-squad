@@ -91,14 +91,19 @@ class TrustedLaneExecutableSkipTests(unittest.TestCase):
         self.assertIs(returned, completed)
 
     def test_an_admission_refusal_keeps_running_in_host_independent_ci(self) -> None:
+        # Invalid task IDs are refused before executable admission, even on a
+        # binary-less host; write_scope validation happens after that admission.
         completed = self.completed(
-            stderr="error: return_artifact is outside packet write_scope\n"
+            stderr="error: task id is invalid\n"
         )
 
         with mock.patch.dict(
             "os.environ", {HOST_INDEPENDENT_ENV: "1"}, clear=False
         ):
-            returned = skip_if_trusted_lane_executable_missing(completed)
+            try:
+                returned = skip_if_trusted_lane_executable_missing(completed)
+            except unittest.SkipTest as exc:
+                self.fail(f"classifier skipped an admission refusal: {exc}")
 
         self.assertIs(returned, completed)
 

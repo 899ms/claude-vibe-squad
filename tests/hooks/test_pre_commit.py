@@ -239,6 +239,9 @@ class InstalledSnapshotTests(PreCommitLeakGuardTests):
         self._assert_exit(1, "BLOCKED: capability validation failed")
 
     def test_real_skill_engine_rejects_bad_description_and_accepts_repair(self) -> None:
+        # Skill wiring imports the capability validator's retirement helpers.
+        # Restore that dependency too: the orchestration spy has no such API.
+        self._real_engine("validate_capabilities")
         self._real_engine("validate_skill_wiring")
         # No staged skill means the conditional guard remains dormant, even
         # though this deliberately minimal fixture is not fully wired yet.

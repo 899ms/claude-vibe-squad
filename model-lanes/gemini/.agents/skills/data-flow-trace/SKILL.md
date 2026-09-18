@@ -1,5 +1,6 @@
 ---
 name: data-flow-trace
+audience: specialist
 description: Use when reviewing how a system handles sensitive or personal data: trace each data class through collection, storage, processing, sharing, retention, and deletion to surface privacy gaps, over-retention, or undisclosed sharing. Triggers on privacy review, DPIA, data-handling audit, or a schema/log that carries PII.
 ---
 

@@ -9,6 +9,48 @@ or " (YYYY-MM-DD)". Other release header text is rejected; a released header
 is required.
 -->
 
+## v1.1.7
+
+The release where nothing was broken and almost everything was mis-measured. v1.1.6 hunted
+guards that reported success while doing nothing; this one found them in the dispatch layer
+itself, and found that the coordinator's own claims about the system were the least reliable
+evidence in it.
+
+### Guards that failed silently
+
+- The write_scope conflict check skipped entirely when the task registry was absent, printing
+  nothing — so a dispatch that never checked and one that checked and found nothing were
+  indistinguishable from the transcript. The repo's own header already called this class
+  unacceptable and had closed only its worktree instance.
+- Four more in the same shape: a tree-health gate that could fall open with no trace in the
+  receipt, a corrupt registry dying with a blank reason and the wrong diagnosis, frontmatter
+  validated by a whole-file regex so packet body text could suppress a refusal, and MCP tool
+  verification disabling itself when no audit log was found.
+- The vault-root validity guard was inert for 32 of the 42 shell wrappers that source it, and an
+  exported root silently overrode location derivation so a worktree wrapper resolved to the
+  parent checkout.
+
+### Prompt injection, in the site nobody checked
+
+- A prompt-injection guard was applied to one of three places that build a prompt. The two
+  unguarded ones were an authenticated HTTP route and the path that runs after every board
+  response — both with no tool allowlist. Found only because a cross-family review was asked
+  what the previous two same-family reviews had missed.
+- The agent definition confining the child's tool surface was written non-atomically: 3.4% of
+  concurrent reads saw a definition with no allowlist.
+
+### Measurement discipline
+
+- CI had failed on `main` every scheduled run for four days over two tracked bytecode files.
+  Nothing surfaced it because nothing read the result.
+- Two test files were red on `main` and no CI job ran either.
+- A capability probe reported the gemini lane dead. It had tested the retired standalone CLI;
+  the lane dispatches through agy, which answers. Three public documents now say so, because
+  that one mis-measurement nearly moved sixteen specialists onto worse-fitting lanes.
+
+Shipped on top of v1.1.6 (`git tag v1.1.6`, 2026-09-15); the `v1.1.7` tag is applied to `main`
+by Chrono after this work is pushed, so it never names an unpushed tree.
+
 ## v1.1.6
 
 A release-hardening release. The defect shape v1.1.5 named — something broken that reported success —
@@ -183,10 +225,10 @@ Shipped under the same version.
   skip verification-contract derivation altogether.
 - **Canary defects fixed.** `--emit-packet` now produces a packet that passes admission unaided, and
   the skills probe reads a task-bound source that survives dispatch, so it can reach `PASS`.
-- **The board `codex_apps` surface is measured, not assumed.** A live worker probe enumerated 125
-  callable tools, and the per-server disable control was then run from the main checkout: 0 tools
-  with the override, 125 in the positive control. It is an ordinary configurable MCP server, so the
-  existing allowlist seam governs it.
+- **The board's platform-bridge MCP surface is measured, not assumed.** A live worker probe
+  enumerated its callable tools, and a per-server disable control from the main checkout suppressed
+  the surface while the positive control restored it. It is an ordinary configurable MCP server,
+  so the existing allowlist seam governs it.
 
 
 ## v1.1.2

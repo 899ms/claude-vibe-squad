@@ -9,6 +9,10 @@
 
 _state/**
 
+# Canary expectations are local configuration; the placeholder example is
+# printed by bin/canary.sh --emit-mcp-expectation-example.
+/_state/canary-mcp-expected.json
+
 # ── preserved from original ──────────────────────────────────────────────────
 !_state/
 !_state/dream-config.yaml
@@ -124,3 +128,12 @@ model-lanes/*/.gemini/settings.json
 # so the control suite passed only on the machine that authored it and reported
 # 12/13 everywhere else. Fixtures are the evidence a rig discriminates; keep them.
 !tools/**/fixtures/**
+
+# Client and personal project trees live in their own repositories, not here.
+# One was moved out on 2026-09-15 after its files were committed here and
+# immediately tripped two squad-system quality gates that were never written to
+# judge a client project. The export policy denies apps/** explicitly as well;
+# this rule keeps it out of the index in the first place so the gates never see
+# it again. Deliberately unnamed: this file publishes, and a client project's
+# name is the client's to disclose, not ours.
+apps/

@@ -4,6 +4,7 @@
   "description": "Authoring source for specialist-by-lane role capabilities; adapters and the cross-lane index are derived.",
   "projection_compatible_source_sha256s": [
     "146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd",
+    "42c525a072e7fcc579f8688947dac7eb60070a9a4959cc13f214a12c1b19fdc7",
     "5e1f2282f7294d6d764a550c1b1851b943709a9637bcb51b1bfb02f15968c70e",
     "b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53"
   ],
@@ -14,9 +15,7 @@
   "servers": [
     {
       "id": "chrono-dedup",
-      "provides": [
-        "prior_art_check"
-      ]
+      "provides": []
     },
     {
       "id": "chrono-media-studio",
@@ -36,9 +35,7 @@
     },
     {
       "id": "lead:chrono-dedup",
-      "provides": [
-        "prior_art_check"
-      ]
+      "provides": []
     }
   ],
   "entries": [
@@ -2256,7 +2253,8 @@
       "coverage": "partial",
       "limitations": [
         "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
-        "declares only capabilities already proven on the claude lane by an existing claude entry; anything the codex route carries but claude has not demonstrated is treated as lane-not-wired rather than assumed"
+        "declares only capabilities already proven on the claude lane by an existing claude entry; anything the codex route carries but claude has not demonstrated is treated as lane-not-wired rather than assumed",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [
         {
@@ -2701,8 +2699,8 @@
         {
           "id": "chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-recon",
@@ -2725,20 +2723,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "sequential-thinking",
@@ -2755,7 +2753,8 @@
       "limitations": [
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
         "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
-        "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
+        "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [
         {
@@ -3161,9 +3160,8 @@
         {
           "id": "prior_art_check",
           "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-dedup",
-          "provided_by": "chrono-dedup"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "pwntools",
@@ -3261,8 +3259,8 @@
         {
           "id": "chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-recon",
@@ -3285,20 +3283,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "probe-failed",
-          "evidence": "pending-reprobe"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "probe-failed",
-          "evidence": "pending-reprobe"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "probe-failed",
-          "evidence": "pending-reprobe"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "sequential-thinking",
@@ -3316,7 +3314,8 @@
         "all shared authored audit and exploit-construction skills are live on this lane, but Kimi exposes no shell or local executable surface; every host CLI is tracked as lane-not-wired and intentionally omitted from the live adapter projection",
         "research MCP operations are lead-brokered and unavailable inside Kimi subagents; the tracked operation ids require a Kimi-lead or Chrono handoff rather than a direct child tool call",
         "prior_art_check remains lead-brokered; board workers are network-isolated and only the local chrono-vault source is expected to succeed, while web sources including Solodit require Chrono-side invocation",
-        "WebFetch remains harness-only, and active scanners or exploit execution remain bounded by target scope, rules of engagement, and the offensive_execution operator gate"
+        "WebFetch remains harness-only, and active scanners or exploit execution remain bounded by target scope, rules of engagement, and the offensive_execution operator gate",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [
         {
@@ -3812,8 +3811,8 @@
         {
           "id": "lead:chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "lead:chrono-vault",
@@ -4099,20 +4098,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "sequential-thinking",
@@ -4127,7 +4126,8 @@
       "lane": "gpt-codex",
       "coverage": "full",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [
         {
@@ -4311,9 +4311,8 @@
         {
           "id": "prior_art_check",
           "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-dedup",
-          "provided_by": "chrono-dedup"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "pwntools",
@@ -4357,8 +4356,8 @@
         {
           "id": "chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-research-arsenal",
@@ -4375,20 +4374,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "sequential-thinking",
@@ -5111,7 +5110,8 @@
       "lane": "claude",
       "coverage": "full",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [
         {
@@ -5175,9 +5175,8 @@
         {
           "id": "prior_art_check",
           "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-dedup",
-          "provided_by": "chrono-dedup"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "WebFetch",
@@ -5197,8 +5196,8 @@
         {
           "id": "chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-research-arsenal",
@@ -7192,16 +7191,16 @@
       "lane": "gpt-codex",
       "coverage": "full",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [],
       "tools": [
         {
           "id": "prior_art_check",
           "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-dedup",
-          "provided_by": "chrono-dedup"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "WebFetch",
@@ -7214,8 +7213,8 @@
         {
           "id": "chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-vault",
@@ -7856,7 +7855,8 @@
       "lane": "claude",
       "coverage": "full",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [
         {
@@ -7969,9 +7969,8 @@
         {
           "id": "prior_art_check",
           "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-dedup",
-          "provided_by": "chrono-dedup"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "subfinder",
@@ -8009,8 +8008,8 @@
         {
           "id": "chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-recon",
@@ -8121,12 +8120,6 @@
       ],
       "tools": [
         {
-          "id": "chrome-devtools",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
-        },
-        {
           "id": "firecrawl_scrape",
           "requirement": "preferred",
           "availability": "mcp-operation",
@@ -8135,6 +8128,12 @@
         }
       ],
       "mcps": [
+        {
+          "id": "chrome-devtools",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "lane-inventory"
+        },
         {
           "id": "chrono-research-arsenal",
           "requirement": "preferred",
@@ -8632,20 +8631,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "sequential-thinking",
@@ -9015,20 +9014,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "sequential-thinking",
@@ -9169,7 +9168,8 @@
       "lane": "claude",
       "coverage": "partial",
       "limitations": [
-        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan"
+        "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [
         {
@@ -9281,9 +9281,8 @@
         {
           "id": "prior_art_check",
           "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-dedup",
-          "provided_by": "chrono-dedup"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "slither",
@@ -9309,8 +9308,8 @@
         {
           "id": "chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-research-arsenal",
@@ -9327,20 +9326,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "sequential-thinking",
@@ -9498,20 +9497,20 @@
         {
           "id": "guarded-semgrep",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-slither",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "guarded-solodit",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "verified-registry:guarded-mcp"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "sequential-thinking",
@@ -10702,7 +10701,8 @@
       "lane": "claude",
       "coverage": "full",
       "limitations": [
-        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation"
+        "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
+        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
       ],
       "skills": [
         {
@@ -10784,9 +10784,8 @@
         {
           "id": "prior_art_check",
           "requirement": "preferred",
-          "availability": "mcp-operation",
-          "evidence": "chrono-dedup",
-          "provided_by": "chrono-dedup"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "WebFetch",
@@ -10806,8 +10805,8 @@
         {
           "id": "chrono-dedup",
           "requirement": "preferred",
-          "availability": "available",
-          "evidence": "installed-or-shared-authored"
+          "availability": "needs-operator-install",
+          "evidence": "operator-install-required"
         },
         {
           "id": "chrono-research-arsenal",

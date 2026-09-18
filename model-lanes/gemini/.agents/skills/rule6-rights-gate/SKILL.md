@@ -1,5 +1,6 @@
 ---
 name: rule6-rights-gate
+audience: specialist
 description: Hard Rule 6 pre-publication rights gate — check licensing/provenance AND likeness/voice consent over a generated or third-party media asset before publish/use, and emit the machine-readable gate record. Use at the S4 Verify step of content/image, content/video, content/audio-assets (or any asset headed for publication).
 type: skill
 ---
@@ -28,9 +29,12 @@ use / de-minimis; a material unresolved check is a HOLD, not a PASS.
 
 ## Machine gate record (emit this)
 ```
-rule6_rights_gate:
+rule6_rights_gate:                   # this block key names the gate type (was gate_type=rights)
   result: PASS | HOLD | FAIL
+  gate_version: <schema/checklist version>   # folded from asset-provenance-and-rights-auditor
+  subject_id: <stable asset id>      # folded in; identifies the asset across versions
   subject_hash: <hash>               # decision is bound to this exact asset version
+  subject_version: <version>         # folded in; the asset revision this decision covers
   assurance: <full | restricted>     # restricted when reverse-image / registry / C2PA lookups are unavailable
   checklist:                         # each item: evidenced | held
     license_provenance: <...>
@@ -39,12 +43,19 @@ rule6_rights_gate:
     watermark_c2pa: <...>
     music_match: <...>
     likeness_consent: <...>
+  evidence_refs: [<refs>]            # folded in; evidence backing the checklist items
   unresolved: [<items>]              # any material item here forces HOLD
   privacy_handoff: <yes|no>          # yes if PII/biometric processing is involved
-  reviewer: <role>
-  timestamp: <iso>
-  override: <fields, if a human override was recorded>
+  specialist: <role>                 # folded in; who ran the gate
+  reviewer: <role>                   # who reviewed it
+  timestamp: <iso>                   # completion time (was completed_at)
+  override: <actor + reason, if a human override was recorded>   # holds override_actor + override_reason
 ```
+
+**Single source.** This is the one schema for the Rule-6 gate record;
+`departments/content/specialists/asset-provenance-and-rights-auditor.md` references it rather than
+restating it (one fact, one home). `gate_type` is dropped as redundant — the `rule6_rights_gate:`
+block key already names the gate.
 
 ## When to invoke
 - The S4 Verify step of `content/image`, `content/video`, `content/audio-assets` — any asset (generated or
@@ -61,15 +72,13 @@ rule6_rights_gate:
 - Any real-person likeness has consent on file or is HELD; consent scope matches intended use; privacy/biometric
   handoff made where processing is involved.
 
-## Notes — sources + cross-lane discovery (honest)
-- **Sources fused:** `shared/skills/rights-and-provenance-gate.md` + `shared/skills/consent-and-likeness-check.md`
-  (both retained as authored pattern-docs and as the `(authored)` card citations until a discovery-smoke
-  promotes card wiring).
-- **Discovery is UNVERIFIED.** Filesystem-present under the neutral `.agents/skills/` root that claude / codex /
-  kimi layered discovery is expected to read; per-lane discovery has NOT been smoke-verified → registry row is
-  `partial`, not `yes`. Filesystem presence is not invocation proof.
-- **Gemini** does not read `.agents/skills/`; it needs its own copy via `gemini hooks migrate` / agentskills.io
-  (follow-up, not done here).
+## Notes — supersession + cross-lane home
+- **Sources fully subsumed:** the retired `rights-and-provenance-gate` and
+  `consent-and-likeness-check` skills. Every component step and acceptance condition is represented by
+  the combined procedure and record above; the standalone skills are retirement candidates rather than parallel
+  S4 triggers.
+- **Canonical home:** `.claude/skills/rule6-rights-gate/SKILL.md`. Because its audience is `specialist`,
+  `model-lanes/SKILL-HOMES.md` requires `.agents/skills/rule6-rights-gate/SKILL.md` to be a byte-identical regular
+  file mirror.
 - Distinct from `privacy-steward` (PII/data-flow) and `asset-provenance-and-rights-auditor` (the heightened-risk
-  role that owns clearance) — this skill is the media S4 self-gate + record emitter. Not yet wired into card S4
-  tuples (follow-on).
+  role that owns clearance) — this skill is the media S4 self-gate + record emitter.

@@ -289,6 +289,10 @@ Dry-run dispatch test only.
             uuid_marker = vault / "uuid-created"
             tmux_marker = vault / "tmux-called"
             (vault / "shared" / "lead-windows.sh").write_text(
+                # MODEL_LANES is what the wrapper's lane allowlist validates
+                # against; the real helper defines it, so the stub must too or
+                # the fixture tests a script that cannot run.
+                "MODEL_LANES=(gpt-codex claude gemini grok kimi)\n"
                 "COMPATIBILITY_NAMESPACES=(coding security content sysmgmt research)\n"
                 'is_compatibility_namespace() { [[ "$1" == coding ]]; }\n'
                 "namespace_default_model() { printf 'claude\\n'; }\n",
@@ -1759,10 +1763,19 @@ Dry-run dispatch test only.
         self.assertIn(
             '"--add-dir",\n            str(handle.worktree_root)', gemini_body
         )
+        # `--print-timeout` sits between them deliberately. agy's print mode
+        # defaults to a 5m0s deadline and, when it fires, prints the partial
+        # turn and exits 0 -- indistinguishable to the board from success, which
+        # silently capped this lane at five minutes on 2026-09-12..14 while
+        # every other lane ran to the board's wall. The value is derived from
+        # `launch_timeout` so the board's wall stays the single deadline.
         self.assertIn(
-            '"--output-format",\n            "text",\n            "--print",\n            concise_prompt',
+            '"--output-format",\n            "text",\n'
+            '            "--print-timeout",\n            agy_print_timeout,\n'
+            '            "--print",\n            concise_prompt',
             gemini_body,
         )
+        self.assertIn("int(launch_timeout)", gemini_body)
         self.assertIn("AGY_EXTERNAL_MCP_MAX_CALLS_FIELD", gemini_body)
         self.assertIn("## Agy global MCP and metered-spend contract", gemini_body)
         for retired_flag in (

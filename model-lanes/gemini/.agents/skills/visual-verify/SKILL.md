@@ -1,5 +1,6 @@
 ---
 name: visual-verify
+audience: specialist
 description: Use when a rendered UI has been built or changed and is about to be accepted — at the S4 Verify gate of a web, game, or other visual capability, before any ship step. Drives the "seen, driven, and measured" acceptance pass; the pixel-diff half belongs to `visual-regression-baseline`.
 ---
 
@@ -10,8 +11,8 @@ accepted because its tests pass or its code reads correctly — it is accepted w
 (captured and looked at), **driven** (a real user journey exercised against it), and **measured**
 (accessibility and performance scored against declared thresholds).
 
-This is the written-down form of a standard the squad already applies: `shared/capabilities/project/web-app.md`
-and `shared/capabilities/project/game-production.md` both declare S4 as a **required** acceptance gate whose
+This is the written-down form of a standard the squad already applies: `shared/capabilities/public/project/web-app.md`
+and `shared/capabilities/public/project/game-production.md` both declare S4 as a **required** acceptance gate whose
 FAIL blocks the S6 ship step. This skill is the procedure for that gate.
 
 ## When to use
@@ -86,11 +87,16 @@ This skill names tools it needs; it does **not** assert they are live for you.
   `claude|codex|gemini`. **Kimi is absent from that lane list** — this gate cannot be run unaided on
   every lane, and a lane without browser tools must report a capability gap rather than approximate the
   pass.
-- **Browser contract — `shared/lifecycle.md` rule 11 governs, and is the only place it is written.**
-  Settled 2026-08-03 by operator decision. Read rule 11 before any browser step of this gate: it
-  carries the attach procedure, the persistent-profile path, the never-spawn prohibitions, and the
-  one permitted exception (hermetic, unauthenticated acceptance testing may use a fresh isolated
-  profile with its own `user-data-dir`, labelled as such in the report).
+- **Browser contract — the governing rule is maintainer-private and withheld from this public
+  distribution.** An operator-settled contract governs every browser step of this gate: it carries
+  the attach procedure, the persistent-profile path, the never-spawn prohibitions, and the one
+  permitted exception (hermetic, unauthenticated acceptance testing may use a fresh isolated profile
+  with its own `user-data-dir`, labelled as such in the report). The authoritative text lives in a
+  maintainer-only file this distribution does not ship, so no public document restates it in full.
+  What it requires operationally is what the paragraph below already spells out: attach to the
+  operator's existing authenticated browser — the persistent Chrome profile with CDP on
+  `127.0.0.1:9222`, described in `docs/install/daemon.md` — rather than spawning a fresh one, and use
+  the fresh-isolated-profile mode only for hermetic, unauthenticated testing, labelled as such.
 
   Local to this gate, and stated nowhere else: `playwright` and `chrome-devtools` observably spawn a
   fresh, isolated Chrome. The registry and `shared/api-catalog.md` describe that behaviour

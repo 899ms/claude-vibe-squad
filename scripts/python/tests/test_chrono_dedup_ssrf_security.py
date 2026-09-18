@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import io
+import importlib.util
+import json
+import shutil
 import socket
 import sys
+import tempfile
 import unittest
 import urllib.request
 from pathlib import Path
@@ -16,7 +20,73 @@ PLUGIN_ROOT = ROOT / "plugins" / "chrono-dedup"
 if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
-from chrono_dedup import sources  # noqa: E402
+if PLUGIN_ROOT.is_dir():
+    from chrono_dedup import sources  # noqa: E402
+
+
+class PublicPluginCapabilityTests(unittest.TestCase):
+    """This publication guard must run even when the private SSRF suite skips."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        path = ROOT / "model-lanes/check_public_plugin_capabilities.py"
+        spec = importlib.util.spec_from_file_location("public_plugin_capabilities", path)
+        assert spec is not None and spec.loader is not None
+        cls.check = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.check)
+
+    def test_public_declarations_have_no_withheld_plugin_providers(self) -> None:
+        self.assertEqual(self.check.audit(ROOT), [])
+
+    def test_new_withheld_component_is_detected_in_direct_and_brokered_adapters(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            # Only declaration inputs are copied; no plugin implementation is
+            # present. The control therefore also covers a fresh public clone.
+            shutil.copytree(ROOT / "model-lanes", root / "model-lanes")
+            (root / "shared").mkdir()
+            shutil.copy2(ROOT / "shared/specialist-runtime-map.tsv", root / "shared")
+            policy_path = root / "tools/export/policy/path-policy.json"
+            policy_path.parent.mkdir(parents=True)
+            policy = json.loads((ROOT / "tools/export/policy/path-policy.json").read_text())
+            policy["deny"].append("plugins/control-withheld/**")
+            policy_path.write_text(json.dumps(policy))
+            direct = root / "model-lanes/gpt-codex/.codex/agents/control.toml"
+            brokered = root / "model-lanes/kimi/.kimi/agents/control.yaml"
+            direct.write_text('mcps = ["control-withheld"]\n')
+            brokered.write_text('mcps: ["lead:control-withheld"]\n')
+            issues = self.check.audit(root)
+            self.assertEqual({i["identifier"] for i in issues},
+                             {"control-withheld", "lead:control-withheld"})
+            self.assertEqual({i["path"] for i in issues},
+                             {direct.relative_to(root).as_posix(), brokered.relative_to(root).as_posix()})
+
+    def test_policy_change_catches_source_index_lane_and_runtime_summaries(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            policy_path = Path(temporary) / "policy.json"
+            policy = json.loads((ROOT / "tools/export/policy/path-policy.json").read_text())
+            # A real shipped plugin is the positive control; no component
+            # spellings are baked into the checker itself.
+            policy["deny"].append("plugins/chrono-vault/**")
+            policy_path.write_text(json.dumps(policy))
+            issues = self.check.audit(ROOT, self.check.load_policy(policy_path))
+            paths = {i["path"] for i in issues}
+            self.assertTrue({"model-lanes/specialist-lane-capabilities.v1.json",
+                             "model-lanes/generated-specialist-capabilities.json",
+                             "model-lanes/lane-capabilities.tsv",
+                             "shared/specialist-runtime-map.tsv"} <= paths)
+            self.assertTrue(any("/.codex/agents/" in p for p in paths))
+            self.assertTrue(any("/.claude/agents/" in p for p in paths))
+
+    def test_unknown_policy_path_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            policy_path = Path(temporary) / "policy.json"
+            policy = json.loads((ROOT / "tools/export/policy/path-policy.json").read_text())
+            policy["public"].remove("plugins/**")
+            policy_path.write_text(json.dumps(policy))
+            issues = self.check.audit(ROOT, self.check.load_policy(policy_path))
+            self.assertTrue(issues)
+            self.assertTrue(any(i["rule"] == "<no matching rule>" for i in issues))
 
 
 def dns_answer(address: str, port: int = 443) -> list[tuple[object, ...]]:
@@ -101,6 +171,7 @@ class RedirectingOpener:
         return StubResponse(b"loopback secret")
 
 
+@unittest.skipUnless(PLUGIN_ROOT.is_dir(), "chrono-dedup is withheld from the public export")
 class ChronoDedupSsrfSecurityTests(unittest.TestCase):
     def test_public_redirect_to_loopback_is_refused_before_second_request(self) -> None:
         openers: list[RedirectingOpener] = []

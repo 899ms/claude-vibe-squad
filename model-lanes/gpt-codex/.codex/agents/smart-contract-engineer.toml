@@ -4,10 +4,10 @@ model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
-capability_source_sha256 = "146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd"
+capability_source_sha256 = "42c525a072e7fcc579f8688947dac7eb60070a9a4959cc13f214a12c1b19fdc7"
 skills = ["defensive-pattern-discovery","evm-audit-flow","solana-audit-flow","vulnhunter-solana"]
 tools = ["aderyn","anchor","echidna","forge","halmos","hardhat","medusa","myth","slither"]
-mcps = ["chrono-research-arsenal","chrono-vault","guarded-semgrep","guarded-slither","guarded-solodit","sequential-thinking"]
+mcps = ["chrono-research-arsenal","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
 developer_instructions = """
 You are the `smart-contract-engineer` specialist running inside the `gpt-codex` model lane.

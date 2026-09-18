@@ -1,5 +1,6 @@
 ---
 name: claim-verification
+audience: specialist
 description: "Use to fact-check a finished deliverable's stated facts — its statistics, quotations, named sources, dates, and forecasts — by decomposing them into load-bearing factual claims and matching each to the exact source span that confirms or refutes it (Hard Rule 8 truth gate). Scope is whether what the text asserts as fact is accurate — the truth of the content itself, not whether a task's tooling actually ran. Route web facts to a grounding worker."
 ---
 

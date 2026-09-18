@@ -113,47 +113,20 @@ jobs:
         # where retained engagement work product is expected.
         run: python3 tools/export/target_scan_public.py .
 
-      - name: No private paths or identifiers
-        # A standing guard, not a one-off cleanup. The export gate enforces this
-        # before publishing; this asserts it stayed true afterwards.
-        #
-        # The patterns are assembled at runtime rather than written literally.
-        # Spelling them out would make this file match its own check -- which it
-        # did on the first rehearsal, failing the gate on itself.
-        run: |
-          home_pattern="/Us""ers/chrono"
-          ident_pattern="chrono""claw"
-
-          # Exercise each split runtime pattern against an independently
-          # assembled canary outside the checkout. A broken construction must
-          # fail the guard before an empty production scan can look reassuring.
-          control_dir="$(mktemp -d "${RUNNER_TEMP:?RUNNER_TEMP is not set}/public-ident-control.XXXXXX")"
-          control_file="${control_dir}/private-identifiers.txt"
-          printf '/%s/%s\n%s%s\n' 'Users' 'chrono' 'chrono' 'claw' > "$control_file"
-
-          if git -C "$control_dir" grep --no-index -qI -e "$home_pattern" -- .; then
-            :
-          else
-            control_status=$?
-            echo "::error::private-path positive control failed (git grep exited ${control_status})"
-            exit "$control_status"
-          fi
-          if git -C "$control_dir" grep --no-index -qI -e "$ident_pattern" -- .; then
-            :
-          else
-            control_status=$?
-            echo "::error::private-identifier positive control failed (git grep exited ${control_status})"
-            exit "$control_status"
-          fi
-
-          if git grep -nI -e "$home_pattern" -e "$ident_pattern" -- . ; then
-            echo "::error::private path or identifier present in the public tree"
-            exit 1
-          else
-            grep_status=$?
-            if [ "$grep_status" -ne 1 ]; then
-              echo "::error::private path/identifier scan failed (git grep exited ${grep_status})"
-              exit "$grep_status"
-            fi
-          fi
-          echo "no private paths or identifiers"
+      # REMOVED 2026-09-18: "No private paths or identifiers".
+      #
+      # The step could not be written honestly in a PUBLIC file. To grep for the
+      # owner's home path it had to contain a home path, so it published the
+      # thing it was checking for. The original author saw that and split the
+      # real values across adjacent string literals; a reviewer rejoined them and
+      # recovered both, so the split only defeated the scanner, not a reader.
+      # Replacing them with a generic shape did not help either: the export
+      # content scan then flagged THIS file, correctly, and it allowlists only
+      # high-entropy findings, not home paths.
+      #
+      # The check itself is not lost. It is enforced BEFORE publication by the
+      # private export gate -- tools/export/content_scan.py against the withheld
+      # tools/export/identifier-denylist.txt -- which is where owner-specific
+      # values belong and which caught both attempts above. A post-hoc assertion
+      # in the published tree that cannot express its own pattern is not a
+      # second line of defence; it is the leak wearing the costume of one.

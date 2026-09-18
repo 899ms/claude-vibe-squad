@@ -7,11 +7,11 @@
 ![models](https://img.shields.io/badge/models-Codex%20%C2%B7%20Claude%20%C2%B7%20Gemini%20%C2%B7%20Kimi%20%C2%B7%20Grok-informational)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![orchestration](https://img.shields.io/badge/orchestration-native%20CLIs%20%C2%B7%20isolated%20worktrees-success)
-![version](https://img.shields.io/badge/version-v1.1.6-blue)
+![version](https://img.shields.io/badge/version-v1.1.7-blue)
 
 <br>
 
-![Vibe Squad — seven specialists running in parallel across two model families](assets/demo/phase3-swarm.gif)
+![Vibe Squad — seven specialists running in parallel across two model families](assets/hero/vibe-squad-hero.svg)
 
 *Seven specialists live at once across Claude and Codex — each card its own model, profile, elapsed clock and scoped surface — while the coordinator works in the pane beside them.*
 
@@ -190,9 +190,29 @@ refuse. Adding one means writing Markdown, not registering a class.
                         grok    █                                 1
 ```
 
+The `gemini` row is a lane name, not a binary. That lane runs on the **agy** CLI, which fronts Gemini and Google's other products; the standalone `gemini` CLI is retired.
+
 Around them sit **65 skills** (methodology documents a specialist reads when the work calls for
-it — unique documents, with the per-runtime mirror copies collapsed), **five plugins**, and **12
+it — unique documents, with the per-runtime mirror copies collapsed), **four catalogued plugins**, and **12
 MCP servers** covering memory, research, recon, media, and security tooling.
+
+The public `plugins/` tree also includes `security-mcp-stack`, a configuration and validation
+bundle without a marketplace manifest: five directories, four catalogued plugins.
+
+`chrono-dedup` exists in the private source and is not distributed here because the
+[export path policy](tools/export/policy/path-policy.json) withholds its tree. Like the four
+catalogued plugins, it declares AGPL-3.0-or-later separately from the root MIT licence; see
+[the plugin licence register](THIRD_PARTY.md#plugins). The licence alone is not the withholding rule.
+This checkout supplies no download or installation source for it. Ask the maintainer for a
+separately distributed source release, or build a replacement prior-art service against your own
+corpus; neither is installed by cloning this repository.
+
+References to `chrono-dedup` in workflow cards, specialist methods, tool recommendations, and
+expected host-tool descriptions describe an optional private setup. Those steps require a
+separately provisioned service; use manual searches of public disclosures and your own prior
+findings when it is absent. The shipped capability source records it as `needs-operator-install`,
+and the generated adapters do not advertise it as available. Even a private checkout must
+explicitly configure and verify the service before changing that declaration locally.
 
 All five families run through their providers' **native CLIs** — never swapped for an MCP relay or a
 direct API fallback. Four authenticate on subscription or managed-login paths; the Grok board lane is
@@ -219,7 +239,7 @@ dated probes, each with the literal command and its literal result.
 
 ## Status
 
-**v1.1.6** is the current release; **v1.1.1** was the first public one. It runs as the maintainer's
+**v1.1.7** is the current release; **v1.1.1** was the first public one. It runs as the maintainer's
 daily driver rather than as a demo. [CHANGELOG.md](CHANGELOG.md) records what each release changed,
 including the parts that are still rough.
 

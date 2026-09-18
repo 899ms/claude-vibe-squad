@@ -8,7 +8,7 @@ files. Entries marked "private source only" are not part of the public projectio
 |---|---|---|
 | `CODE_OF_CONDUCT.md` | CC BY 4.0 | Adapted from the [Contributor Covenant v2.1](https://github.com/EthicalSource/contributor_covenant/tree/2.1). Not MIT. |
 | `departments/sysmgmt/reference/dsd-SKILL.md` | MIT | Separately licensed material from FrozenPepper; see `departments/sysmgmt/reference/dsd-LICENSE`. |
-| `shared/skills/_retired/gptscan-prompt-templates.md` | AGPL-3.0-only | Carries a provenance marker deriving from GPTScan. Pending clean-room rewrite; until that lands this file is **not** MIT. |
+| `shared/skills/_retired/gptscan-prompt-templates.md` | AGPL-3.0-only | Private source only. Carries a provenance marker deriving from GPTScan; pending clean-room rewrite it is **not** MIT, so it is withheld from the projection rather than distributed under an MIT grant it does not have. |
 | `tools/radar/templates/positive-control-pda-sharing.yaml` | GPL-3.0-only | Private source only. Unmodified copy from `Auditware/radar`. |
 | `tools/radar/compose.yaml` | GPL-3.0-only | Private source only. Modified derivative of the same upstream. |
 | `shared/skills/defensive-pattern-discovery.md` | AGPL-3.0-only | Private source only. Tracks OpenZeppelin's `develop-secure-contracts` skill. |
@@ -36,3 +36,10 @@ first-party rather than third-party. Whether each publishes is decided by the ex
 
 `plugins/security-mcp-stack/` is listed for completeness only: with no manifest it carries no licence
 exception, so the root MIT licence applies to it as it does to any other original material.
+
+Publication and licensing are separate decisions: the four catalogued plugins publish under their
+declared AGPL-3.0-or-later notices, while the same licence does not override the policy withholding
+`chrono-dedup`. There are five public plugin directories including `security-mcp-stack`.
+No source download for `chrono-dedup` is supplied in this checkout; obtaining a separate source
+release requires contacting the maintainer. Public capability declarations retain it only as
+requiring operator installation, with manual prior-art searches as the fallback.

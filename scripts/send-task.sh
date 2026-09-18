@@ -157,6 +157,15 @@ for name, value in zip(sys.argv[1::2], sys.argv[2::2]):
     if value and value.splitlines() != [value]:
         print(f"ERROR: {name} must be single-line (no parser line breaks)", file=sys.stderr)
         raise SystemExit(1)
+    # Python preserves malformed argv/environment bytes with surrogateescape.
+    # Refuse values that strict UTF-8 cannot preserve; do not normalize text.
+    try:
+        round_trip = value.encode("utf-8").decode("utf-8")
+    except UnicodeError:
+        round_trip = None
+    if round_trip != value:
+        print(f"ERROR: {name} must round-trip through UTF-8 without loss", file=sys.stderr)
+        raise SystemExit(1)
 PYEOF
 then
     exit 1
@@ -203,6 +212,33 @@ if [[ "${SPECIALIST}" != "none" && -f "${RUNTIME_MAP}" ]]; then
         MAPPED_REVIEW_MODEL="${mapped_review:-none}"
         SOURCE_NAMESPACE="${mapped_namespace:-${SOURCE_NAMESPACE}}"
     fi
+fi
+
+# The lookup can replace both values. Check the resolved identifiers against
+# the shared inventories; shared is a role source, not a compatibility mailbox.
+if [[ "${SOURCE_NAMESPACE}" != "shared" ]] && ! is_compatibility_namespace "${SOURCE_NAMESPACE}"; then
+    echo "ERROR: invalid SOURCE_NAMESPACE '${SOURCE_NAMESPACE}'"
+    exit 1
+fi
+# The lane allowlist needs MODEL_LANES from the sourced helper. If that helper
+# did not load, an unset array under `set -u` crashes with an opaque unbound-
+# variable error rather than saying what is wrong -- which is how this surfaced
+# as a dispatch failure in a fixture that simply lacked the helper.
+if [[ -z "${MODEL_LANES+x}" || ${#MODEL_LANES[@]} -eq 0 ]]; then
+    echo "ERROR: lane allowlist unavailable: MODEL_LANES is not defined." >&2
+    echo "       shared/lead-windows.sh must be sourced before lane validation." >&2
+    exit 1
+fi
+valid_model=false
+for model_lane in "${MODEL_LANES[@]}"; do
+    if [[ "${TO_MODEL}" == "${model_lane}" ]]; then
+        valid_model=true
+        break
+    fi
+done
+if [[ "${valid_model}" != "true" ]]; then
+    echo "ERROR: invalid TO_MODEL '${TO_MODEL}'; expected ${MODEL_LANES[*]}"
+    exit 1
 fi
 
 # Review is a property of this packet. The hardened dispatcher validates the

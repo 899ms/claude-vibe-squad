@@ -373,6 +373,6 @@ Capability tie-breaker only — **not** the specialist-selection index (Dispatch
 
 - `gpt-codex`: implementation, tests, refactors, code review mechanics, PoC mechanics
 - `claude`: judgment, security/privacy reasoning, planning, safety, memory/system discipline
-- `gemini`: content, design, media, visual/multimodal workflows
+- `gemini`: content, design, media, visual/multimodal workflows. Dispatches via the **agy** CLI (Gemini plus Google's other products, OAuth); the retired standalone `gemini` CLI is not used and probing it will wrongly report this lane dead
 - `kimi`: source-heavy research, long-context analysis, extraction, synthesis
 - `grok`: native X/Twitter search under a SuperGrok subscription; `smokey` is its advisor, and it is the escalate route for `research` and `bounty-researcher`. `read_file` hard-fails past ~25k tokens, so large documents need shell or paged ingest — do not route whole-document work here without saying so in the packet.

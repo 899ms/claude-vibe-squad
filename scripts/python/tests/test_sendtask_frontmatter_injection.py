@@ -4,6 +4,10 @@
 The real dispatcher runs only against an isolated ``VAULT_ROOT``.  Its board
 supervisor is deliberately absent, so every fixture stops after active-registry
 construction and no model CLI can launch.
+
+Select ``SendTaskShellSourceTests`` for the static heredoc gate, or pass
+``--shellcheck`` for CI's warning gate. Both enumerate the same source hints
+without executing any dispatch code.
 """
 
 from __future__ import annotations
@@ -13,9 +17,11 @@ import json
 import os
 from pathlib import Path
 import re
+import shlex
 import shutil
 # Fixed local test executable; no attacker-selected command or shell.
 import subprocess  # nosec B404
+import sys
 import tempfile
 import unittest
 
@@ -24,6 +30,45 @@ REPO = Path(__file__).resolve().parents[3]
 SEND_TASK = REPO / "bin" / "send-task.sh"
 LINKED_SUBTREES = ("shared", "model-lanes")
 MAILBOXES = ("inbox", "active", "outbox", "archive")
+
+
+def dispatch_shell_sources(repo: Path = REPO) -> tuple[Path, ...]:
+    """Follow the dispatcher's existing ShellCheck source hints, transitively.
+
+    Hints resolve relative to the including script. Standalone source
+    statements must carry a hint; missing or
+    out-of-tree hinted dependencies fail instead of shrinking the scan. Follow
+    every hint, including ones attached to conditional source statements.
+    """
+    repo = repo.resolve()
+    pending = [repo / "bin" / "send-task.sh"]
+    seen: set[Path] = set()
+    while pending:
+        script = pending.pop().resolve()
+        if not script.is_relative_to(repo) or not script.is_file():
+            raise ValueError(f"dispatch source must be an existing repo file: {script}")
+        if script in seen:
+            continue
+        seen.add(script)
+        source_hint = None
+        for number, line in enumerate(script.read_text(encoding="utf-8").splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("# shellcheck "):
+                for directive in shlex.split(stripped.removeprefix("# shellcheck ")):
+                    if directive.startswith("source="):
+                        source_hint = directive.removeprefix("source=")
+                        pending.append(script.parent / source_hint)
+                continue
+            if not stripped or stripped.startswith("#"):
+                continue
+            if re.match(r"(?:source|\.)\s+", stripped):
+                if not source_hint:
+                    raise ValueError(
+                        f"{script.relative_to(repo)}:{number}: "
+                        "source statement needs a repo-local ShellCheck source= hint"
+                    )
+            source_hint = None
+    return tuple(sorted(seen))
 
 
 def packet_bytes(fields: dict[str, str], body: str = "CC-04 fixture") -> bytes:
@@ -239,26 +284,45 @@ class SendTaskFrontmatterInjectionTests(unittest.TestCase):
                 )
                 self.assertNotIn(task_id, registry)
 
-    def test_every_python_heredoc_is_literal_and_packet_is_snapshotted_once(self) -> None:
-        source = SEND_TASK.read_text(encoding="utf-8")
-        self.assertNotRegex(source, r"python3?[^\n]*<<PY[A-Z_]*")
-        self.assertNotIn('scope_raw = """${WRITE_SCOPE_RAW}"""', source)
-        self.assertEqual(source.count('parse_task_frontmatter "$TASK_FILE"'), 1)
-        self.assertNotRegex(
-            source,
-            r'frontmatter_(?:field|has_field) "\$TASK_FILE"',
-        )
 
-        python_bodies = re.findall(
-            r"<<'PYEOF'\n(.*?)\nPYEOF",
-            source,
-            flags=re.DOTALL,
-        )
-        self.assertGreaterEqual(len(python_bodies), 10)
-        for body in python_bodies:
-            self.assertNotRegex(body, r"\$\{[A-Z_][A-Z0-9_]*\}")
-            self.assertNotIn("$(", body)
+class SendTaskShellSourceTests(unittest.TestCase):
+    """Static gate: no dispatcher, registry, or model process is started."""
+
+    def test_every_python_heredoc_is_literal_and_packet_is_snapshotted_once(self) -> None:
+        snapshots = 0
+        body_count = 0
+        for script in dispatch_shell_sources():
+            label = str(script.relative_to(REPO))
+            source = script.read_text(encoding="utf-8")
+            with self.subTest(script=label):
+                self.assertNotRegex(source, r"python3?[^\n]*<<PY[A-Z_]*", msg=label)
+                self.assertNotIn('scope_raw = """${WRITE_SCOPE_RAW}"""', source, msg=label)
+                snapshots += source.count('parse_task_frontmatter "$TASK_FILE"')
+                self.assertNotRegex(
+                    source,
+                    r'frontmatter_(?:field|has_field) "\$TASK_FILE"',
+                    msg=label,
+                )
+
+                python_bodies = re.findall(
+                    r"<<'PYEOF'\n(.*?)\nPYEOF",
+                    source,
+                    flags=re.DOTALL,
+                )
+                body_count += len(python_bodies)
+                for body in python_bodies:
+                    self.assertNotRegex(body, r"\$\{[A-Z_][A-Z0-9_]*\}", msg=label)
+                    self.assertNotIn("$(", body, msg=label)
+        self.assertEqual(snapshots, 1)
+        self.assertGreaterEqual(body_count, 10)
 
 
 if __name__ == "__main__":
+    if sys.argv[1:] == ["--shellcheck"]:
+        raise SystemExit(subprocess.run(
+            ["shellcheck", "--severity=warning", *map(str, dispatch_shell_sources())],
+            cwd=REPO,
+            check=False,
+            timeout=30,
+        ).returncode)
     unittest.main()
