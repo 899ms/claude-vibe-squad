@@ -36,23 +36,44 @@
 # class of silent-skip failure as the versioned-literal bug above, reintroduced
 # by an assumption about process shape rather than about a name.
 
+# chrono_pane_resolve_id <tmux-target>
+# Prints the pane id (%N) the target names, or nothing when no pane matches.
+#
+# Verify the target EXISTS before trusting a pid from it. `display-message`
+# silently falls back to the ACTIVE pane for an unresolvable target and exits
+# 0, so a typo'd or stale target returns the wrong pane's pid and the caller
+# cannot tell. Measured 2026-09-17: `-t squad:99.9` returned the live Chrono
+# pane's pid with exit 0. Enumerate real panes and require an exact match.
+#
+# The match must accept every spelling a real caller uses, not just one:
+#   * `%N`                    -- the pane id. Hooks inherit TMUX_PANE=%N, and
+#                                chrono-focus-gate.sh passes it straight through.
+#   * `session:index.pane`    -- what launch-squad.sh and squad-stop.sh use.
+#   * `session:name.pane`     -- outbox-watcher.sh's `squad:chrono.0`.
+# Measured 2026-09-19: the 2026-09-17 version matched only the index spelling,
+# so the focus gate returned "no coordinator" on every one of 293 operator
+# prompts and the watcher dropped every board nudge for two days, both silently.
+# Window names may contain spaces, so the fields are tab-separated.
+chrono_pane_resolve_id() {
+    local target="$1"
+    local tmux_bin="${TMUX_BIN:-tmux}"
+    [[ -n "$target" ]] || return 1
+    "$tmux_bin" list-panes -a \
+        -F $'#{pane_id}\t#{session_name}:#{window_index}.#{pane_index}\t#{session_name}:#{window_name}.#{pane_index}' 2>/dev/null \
+        | awk -F '\t' -v t="$target" '$1 == t || $2 == t || $3 == t { print $1; exit }'
+}
+
 # chrono_pane_has_coordinator <tmux-target>
 # Returns 0 when the coordinator CLI is the live foreground process there.
 chrono_pane_has_coordinator() {
-    local target="$1" pane_pid="" parent="" pid="" cmd="" executable=""
+    local target="$1" pane_id="" pane_pid="" parent="" pid="" cmd="" executable=""
     local tmux_bin="${TMUX_BIN:-tmux}"
 
-    # Verify the target EXISTS before trusting a pid from it. `display-message`
-    # silently falls back to the ACTIVE pane for an unresolvable target and exits
-    # 0, so a typo'd or stale target returns the wrong pane's pid and the caller
-    # cannot tell. Measured 2026-09-17: `-t squad:99.9` returned the live Chrono
-    # pane's pid with exit 0. Enumerate real panes and require an exact match.
-    if ! "$tmux_bin" list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}' 2>/dev/null \
-        | grep -qxF "$target"; then
-        return 1
-    fi
+    pane_id="$(chrono_pane_resolve_id "$target")"
+    [[ -n "$pane_id" ]] || return 1
 
-    pane_pid="$("$tmux_bin" display-message -p -t "$target" '#{pane_pid}' 2>/dev/null)" || return 1
+    # Ask by pane id, which tmux cannot mis-resolve to some other pane.
+    pane_pid="$("$tmux_bin" display-message -p -t "$pane_id" '#{pane_pid}' 2>/dev/null)" || return 1
     [[ -n "$pane_pid" ]] || return 1
 
     # Use one ps snapshot for every comparison, so hook activity cannot split
@@ -74,7 +95,14 @@ chrono_pane_has_coordinator() {
 # chrono_pane_observed_command <tmux-target>
 # What is actually there, for a diagnosable skip message.
 chrono_pane_observed_command() {
-    local target="$1"
-    "${TMUX_BIN:-tmux}" display-message -p -t "$target" '#{pane_current_command}' 2>/dev/null \
+    local target="$1" pane_id=""
+    # Same exact-match resolution as the check itself, so the skip message can
+    # never describe the active pane while claiming to describe the target.
+    pane_id="$(chrono_pane_resolve_id "$target")"
+    if [[ -z "$pane_id" ]]; then
+        printf 'unavailable'
+        return 0
+    fi
+    "${TMUX_BIN:-tmux}" display-message -p -t "$pane_id" '#{pane_current_command}' 2>/dev/null \
         || printf 'unavailable'
 }

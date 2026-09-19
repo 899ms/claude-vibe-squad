@@ -1120,13 +1120,25 @@
           "evidence": "installed-skill-root"
         },
         {
-          "id": "skill-description-trigger-authoring",
+          "id": "copy-refinement",
           "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "de-ai-before-delivery",
+          "requirement": "preferred",
           "availability": "available",
           "evidence": "installed-skill-root"
         },
         {
-          "id": "writing-skills",
+          "id": "persuasive-technical-writing",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "skill-description-trigger-authoring",
           "requirement": "required",
           "availability": "available",
           "evidence": "installed-skill-root"
@@ -1178,13 +1190,13 @@
           "evidence": "installed-skill-root"
         },
         {
-          "id": "skill-description-trigger-authoring",
-          "requirement": "preferred",
+          "id": "copy-refinement",
+          "requirement": "required",
           "availability": "available",
           "evidence": "shared-registry:authored"
         },
         {
-          "id": "writing-skills",
+          "id": "skill-description-trigger-authoring",
           "requirement": "preferred",
           "availability": "available",
           "evidence": "shared-registry:authored"
@@ -2106,6 +2118,18 @@
           "evidence": "shared-registry:authored"
         },
         {
+          "id": "de-ai-before-delivery",
+          "requirement": "preferred",
+          "availability": "available",
+          "evidence": "installed-skill-root"
+        },
+        {
+          "id": "persuasive-technical-writing",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
           "id": "skill-description-trigger-authoring",
           "requirement": "required",
           "availability": "available",
@@ -2116,12 +2140,6 @@
           "requirement": "preferred",
           "availability": "superseded",
           "evidence": "superseded"
-        },
-        {
-          "id": "writing-skills",
-          "requirement": "required",
-          "availability": "available",
-          "evidence": "installed-skill-root"
         }
       ],
       "tools": [
@@ -2181,12 +2199,6 @@
           "requirement": "preferred",
           "availability": "superseded",
           "evidence": "superseded"
-        },
-        {
-          "id": "writing-skills",
-          "requirement": "preferred",
-          "availability": "available",
-          "evidence": "shared-registry:authored"
         }
       ],
       "tools": [
@@ -9562,13 +9574,25 @@
           "evidence": "installed-skill-root"
         },
         {
-          "id": "skill-description-trigger-authoring",
+          "id": "copy-refinement",
           "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "de-ai-before-delivery",
+          "requirement": "preferred",
           "availability": "available",
           "evidence": "installed-skill-root"
         },
         {
-          "id": "writing-skills",
+          "id": "persuasive-technical-writing",
+          "requirement": "required",
+          "availability": "available",
+          "evidence": "shared-registry:authored"
+        },
+        {
+          "id": "skill-description-trigger-authoring",
           "requirement": "required",
           "availability": "available",
           "evidence": "installed-skill-root"

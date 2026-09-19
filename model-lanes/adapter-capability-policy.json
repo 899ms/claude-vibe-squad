@@ -56,7 +56,7 @@
     "tags",
     "version"
   ],
-  "generic_pointer_line": "Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use \u2014 declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.",
+  "generic_pointer_line": "Tool, skill, and MCP capabilities are **lane-specific** and are defined authoritatively in this specialist's per-lane adapter under `model-lanes/`, bounded by the lane capability profile in `model-lanes/lane-capabilities.tsv`. This canonical base names no tool, MCP, or skill by design (the boundary test: a sentence that would be false on some lane belongs in the adapter). Read your adapter for the exact executables and MCP/skill surface available on your lane, and verify each in your live runtime before use — declare a capability gap and use the task-approved fallback if a declared capability is absent. Kimi subagents cannot hold MCP, so on the Kimi lane any MCP work is lead-brokered.",
   "migration_parity_retirements": [
     {
       "specialist": "content-verifier",
@@ -153,6 +153,30 @@
       "retired_on": "2026-08-29",
       "source_task": "TASK-2099-01-01-0002-example-skill-retirement",
       "reason": "orphaned plugin-cache route retired from the capability source; superseded by chain-construct (wired)"
+    },
+    {
+      "specialist": "brand-voice",
+      "kind": "skills",
+      "identifier": "writing-skills",
+      "retired_on": "2026-09-18",
+      "source_task": "TASK-2026-09-18-1019-2c251a13",
+      "reason": "skill-authoring methodology misrouted as a prose methodology: `writing-skills` resolves to the superpowers skill for authoring SKILL.md files, not for writing prose, so the three writing specialists loaded it and applied no craft skill. Superseded by copy-refinement (wired, both skill roots) plus de-ai-before-delivery on the claude lane (wired, .claude/skills). Measured 2026-09-18: the article-writing lane reported skills_applied=claim-verification only and itself flagged that the projection should point at a prose skill."
+    },
+    {
+      "specialist": "editor",
+      "kind": "skills",
+      "identifier": "writing-skills",
+      "retired_on": "2026-09-18",
+      "source_task": "TASK-2026-09-18-1019-2c251a13",
+      "reason": "skill-authoring methodology misrouted as a prose methodology: `writing-skills` resolves to the superpowers skill for authoring SKILL.md files, not for writing prose, so the three writing specialists loaded it and applied no craft skill. Superseded by copy-refinement (wired, both skill roots) plus de-ai-before-delivery on the claude lane (wired, .claude/skills). Measured 2026-09-18: the article-writing lane reported skills_applied=claim-verification only and itself flagged that the projection should point at a prose skill."
+    },
+    {
+      "specialist": "social-strategist",
+      "kind": "skills",
+      "identifier": "writing-skills",
+      "retired_on": "2026-09-18",
+      "source_task": "TASK-2026-09-18-1019-2c251a13",
+      "reason": "skill-authoring methodology misrouted as a prose methodology: `writing-skills` resolves to the superpowers skill for authoring SKILL.md files, not for writing prose, so the three writing specialists loaded it and applied no craft skill. Superseded by copy-refinement (wired, both skill roots) plus de-ai-before-delivery on the claude lane (wired, .claude/skills). Measured 2026-09-18: the article-writing lane reported skills_applied=claim-verification only and itself flagged that the projection should point at a prose skill."
     }
   ],
   "identifier_seeds": {

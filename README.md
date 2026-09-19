@@ -7,7 +7,7 @@
 ![models](https://img.shields.io/badge/models-Codex%20%C2%B7%20Claude%20%C2%B7%20Gemini%20%C2%B7%20Kimi%20%C2%B7%20Grok-informational)
 ![license](https://img.shields.io/badge/license-MIT-blue)
 ![orchestration](https://img.shields.io/badge/orchestration-native%20CLIs%20%C2%B7%20isolated%20worktrees-success)
-![version](https://img.shields.io/badge/version-v1.1.7-blue)
+![version](https://img.shields.io/badge/version-v1.1.8-blue)
 
 <br>
 
@@ -192,9 +192,9 @@ refuse. Adding one means writing Markdown, not registering a class.
 
 The `gemini` row is a lane name, not a binary. That lane runs on the **agy** CLI, which fronts Gemini and Google's other products; the standalone `gemini` CLI is retired.
 
-Around them sit **65 skills** (methodology documents a specialist reads when the work calls for
-it — unique documents, with the per-runtime mirror copies collapsed), **four catalogued plugins**, and **12
-MCP servers** covering memory, research, recon, media, and security tooling.
+Around them sit **92 skills** (methodology documents a specialist reads when the work calls for
+it — unique documents, with the per-runtime mirror copies collapsed), **four catalogued plugins**, and **8
+MCP servers** covering memory, research, recon, and media tooling, with a staged security stack you wire yourself.
 
 The public `plugins/` tree also includes `security-mcp-stack`, a configuration and validation
 bundle without a marketplace manifest: five directories, four catalogued plugins.
@@ -239,7 +239,7 @@ dated probes, each with the literal command and its literal result.
 
 ## Status
 
-**v1.1.7** is the current release; **v1.1.1** was the first public one. It runs as the maintainer's
+**v1.1.8** is the current release; **v1.1.1** was the first public one. It runs as the maintainer's
 daily driver rather than as a demo. [CHANGELOG.md](CHANGELOG.md) records what each release changed,
 including the parts that are still rough.
 

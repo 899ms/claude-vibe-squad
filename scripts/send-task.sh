@@ -36,7 +36,8 @@
 
 set -euo pipefail
 
-VAULT_ROOT="${VAULT_ROOT:-${HOME}/Obsidian-Claude-Vibe-Squad}"
+# Default to the checkout this script lives in; a fixed home-relative name only worked on one machine.
+VAULT_ROOT="${VAULT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)}"
 HARDENED_DISPATCH="${VAULT_ROOT}/bin/send-task.sh"
 AUTHORING_PREFLIGHT="${VAULT_ROOT}/scripts/python/dispatch_preflight.py"
 RUNTIME_MAP="${VAULT_ROOT}/shared/specialist-runtime-map.tsv"

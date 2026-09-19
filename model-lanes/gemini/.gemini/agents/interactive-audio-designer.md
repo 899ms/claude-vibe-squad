@@ -10,7 +10,7 @@ max_turns: 30
 <!-- generated_by=lane-capability-registry/v1 registry_sha256=55eeb1e04b2465f5a723bcb1fddec4823f2751b08c72b701fcd2d542a836e29f
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd
+capability_source_sha256: ac8de362ad431d3f6ee73ff317397ef3a628e6e7846040233c3771750b248e13
 capability_skills: ["audio-event-map-authoring","interactive-audio-design"]
 capability_mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

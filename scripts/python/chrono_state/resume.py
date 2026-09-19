@@ -123,6 +123,22 @@ MAX_PROJECTED_CHARTERS = 8
 MAX_PROJECTED_QUEUES = 4
 MAX_PROJECTED_DONE_WHEN = 6
 MAX_PROJECTED_OPEN_WORK = workboard_state.MAX_PROJECTED_ITEMS
+DEPARTMENTS_ROOT = Path(os.environ.get("VAULT_ROOT", ".")) / "departments"
+# A NEEDS HUMAN line carries the specialist's own one-line ask, read from its
+# outbox response. Responses are unbounded prose and these lines are never
+# dropped by the token cascade, so the read, the summary and the number of
+# enriched lines are each capped; anything past the caps renders plain.
+# 128, not 140: the ' untrusted: "…"' label costs 12 characters and the line budget is fixed.
+NEEDS_HUMAN_SUMMARY_CHARS = 128
+NEEDS_HUMAN_RESPONSE_MAX_BYTES = 256 * 1024
+MAX_ENRICHED_NEEDS_HUMAN = 8
+NEEDS_HUMAN_LANE_CHARS = 60
+DECISION_SECTION_NOTE = "decision section present"
+_SAFE_TASK_ID_RE = re.compile(r"[A-Za-z0-9._-]+")
+_DECISION_HEADING_RE = re.compile(r"#{1,6}\s.*operator decision", re.IGNORECASE)
+# Square brackets are the capsule's source-tag syntax and " | " introduces the
+# decision note, so a summary must not be able to counterfeit either.
+_SUMMARY_NOISE_RE = re.compile(r"[\[\]|]")
 OPEN_WORK_CLIP = workboard_state.SUMMARY_CLIP
 OPEN_WORK_NEXT_CLIP = workboard_state.ACTION_CLIP
 
@@ -295,6 +311,86 @@ def active_thread_charters(path=None, now: datetime | None = None):
         ]
 
 
+def _needs_human_response_path(task_id):
+    """Locate departments/<namespace>/outbox/<ID>-response.md, or None."""
+    if not isinstance(task_id, str) or not _SAFE_TASK_ID_RE.fullmatch(task_id):
+        return None
+    if not DEPARTMENTS_ROOT.is_dir():
+        return None
+    for namespace in sorted(DEPARTMENTS_ROOT.iterdir()):
+        candidate = namespace / "outbox" / f"{task_id}-response.md"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _has_decision_heading(body):
+    """True when a heading outside any fenced code block names an operator decision."""
+    fenced = False
+    for line in body:
+        text = line.lstrip()
+        if text.startswith(("```", "~~~")):
+            fenced = not fenced
+            continue
+        if not fenced and _DECISION_HEADING_RE.match(text):
+            return True
+    return False
+
+
+def needs_human_ask(task_id):
+    """The specialist's one-line ask for a needs_human task, or None.
+
+    Returns ``(summary, decision_section_present)``: the first non-empty line
+    after the response's YAML frontmatter, clipped, plus whether any heading
+    names an operator decision. None on any failure (missing, unreadable, no
+    frontmatter, empty body, oversized) so the caller renders the plain line.
+    """
+    try:
+        path = _needs_human_response_path(task_id)
+        if path is None or path.stat().st_size > NEEDS_HUMAN_RESPONSE_MAX_BYTES:
+            return None
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        if not lines or lines[0].strip() != "---":
+            return None
+        close = next(
+            (i for i, line in enumerate(lines[1:], 1) if line.strip() == "---"),
+            None,
+        )
+        if close is None:
+            return None
+        body = lines[close + 1 :]
+        first = next((line for line in body if line.strip()), "")
+        summary = clip(_SUMMARY_NOISE_RE.sub("", first), NEEDS_HUMAN_SUMMARY_CHARS)
+        if not summary:
+            return None
+        return summary, _has_decision_heading(body)
+    except Exception:
+        return None
+
+
+def _needs_human_line(task, enrich):
+    action = task.get("next_action") or "operator decision"
+    plain = f"- NEEDS HUMAN: {action} [{task['id']}]"
+    ask = needs_human_ask(task.get("id")) if enrich else None
+    if ask is None:
+        return plain
+    summary, decision = ask
+    # specialist and to_model arrive from the registry unbounded; clipping the
+    # lane keeps the summary cap the only thing that sets this line's length.
+    lane = clip(
+        f"{task.get('specialist') or '?'}/{task.get('to_model') or '?'}",
+        NEEDS_HUMAN_LANE_CHARS,
+    )
+    note = f" | {DECISION_SECTION_NOTE}" if decision else ""
+    # The summary is worker-authored prose landing in the coordinator's resume
+    # context. Quote it and label it so it reads as data, never as an instruction
+    # (finding A1, 2026-09-19 opsec review). Straight quotes inside it are folded
+    # so the boundary of the quoted span stays unambiguous.
+    quoted = summary.replace('"', "'")
+    task_id = task["id"]
+    return f'- NEEDS HUMAN: {action} ({lane}) untrusted: "{quoted}"{note} [{task_id}]'
+
+
 def _thread_lines(
     charters: list[ThreadCharter],
     mode: int,
@@ -311,8 +407,8 @@ def _thread_lines(
     urgent = list(needs_human or ())
     queue_total = sum(len(charter.unresolved_queues) for charter in charters)
     lines = [
-        f"- NEEDS HUMAN: {task.get('next_action', 'operator decision')} [{task['id']}]"
-        for task in urgent
+        _needs_human_line(task, enrich=index < MAX_ENRICHED_NEEDS_HUMAN)
+        for index, task in enumerate(urgent)
     ]
     if mode <= 0:
         if charters:

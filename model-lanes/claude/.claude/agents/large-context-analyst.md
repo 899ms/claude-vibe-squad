@@ -4,7 +4,7 @@ description: "Long-context analysis moves from Kimi to Fable because Fable and S
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd
+capability_source_sha256: ac8de362ad431d3f6ee73ff317397ef3a628e6e7846040233c3771750b248e13
 skills: ["claim-verification","cross-file-relationship-synthesis","dual-level-retrieval","layered-analysis-loop","scope-estimation"]
 mcps: ["chrono-research-arsenal","chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION

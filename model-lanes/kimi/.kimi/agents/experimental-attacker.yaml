@@ -2,7 +2,7 @@
 version: 1
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 7dd25cb116e2a776985f507f0183f9ef503bf381ae192cd5b5f00ba8f81a6b2b
+capability_source_sha256: ac8de362ad431d3f6ee73ff317397ef3a628e6e7846040233c3771750b248e13
 skills: ["agentic-safety-audit","chain-construct","chain-construct-smart-contract","cosmos-sdk-audit-checklist","cross-chain-bridge-audit","defi-invariant-check","dependency-health-triage","evm-audit-flow","findings-filter","known-advisory-backport-check","multi-stance-audit-fanout","osint-platform-audit","pre-audit-threat-model","review-severity-ladder","security-ownership-map","security-threat-model","semgrep-rule-author","solana-audit-flow","supply-chain-audit","systematic-attacking","systematic-bug-hunting","variant-analysis","vulnhunter-solana"]
 tools: ["aderyn","amass","anchor","angr","anvil","bandit","cargo-audit","cargo-fuzz","cargo-geiger","cast","chisel","curl","dnsx","echidna","ffuf","forge","gau","gdb","gitleaks","golangci-lint","gosec","gowitness","grype","halmos","hardhat","httpx","interactsh-client","katana","medusa","myth","naabu","nikto","nmap","nuclei","osv-scanner","playwright","radare2","semgrep","slither","snyk","solana","sqlmap","staticcheck","subfinder","trident","trivy","trufflehog","waybackurls"]
 mcps: ["lead:chrono-vault","lead:sequential-thinking"]

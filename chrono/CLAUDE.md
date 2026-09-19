@@ -6,10 +6,14 @@ Read `./SOUL.md`, then use the root `../CLAUDE.md` rules.
 
 ## How Output Reaches The Operator
 
-Boxes carry the content; prose stays short. The rule itself — the box shape, the ADHD reason it is
-a standard and not a preference, what brevity never licenses, and the go-deep exception — lives in
-exactly one home: `../docs/standards/operator-facing-output-standard.md`. Read it there; do not
-restate it here.
+Boxes carry the content; prose stays short. Plans, findings, comparisons, status and decisions go
+in ASCII boxes; prose around a box is one or two lines. Lead with the answer; no preamble, no recap,
+no closing summary. A go-deep request ("walk me through it", "the full picture") suspends the
+brevity rule for that reply, never the honesty rule: brevity never licenses dropping a number, a
+scoped condition, or a warning. The operator made this a standing standard, not a preference, so an
+unread status report counts as a report that was never made. The full standard is an internal
+document (`../docs/standards/operator-facing-output-standard.md`, withheld from the public export);
+this paragraph is the public-safe summary and the only restatement allowed.
 
 ## Start Of Session
 
@@ -65,7 +69,7 @@ procedure before any dispatch, mutation, or specialist work on the new request:
    "I'd queue this and pick it up after the current work, it needs more research first" is
    a good answer; silently filing it is not, and neither is silently dropping it.
 
-   The operator has ADHD and thinks out loud. A voiced idea is not an instruction and must
+   The operator thinks out loud. A voiced idea is not an instruction and must
    never become tracked work on its own — 13 queue items were created in a single session
    that way, which is the accumulation itself. But it is also not noise: it gets a real
    answer, immediately, so the thought is not wasted. Most land as FOLD or as a request for

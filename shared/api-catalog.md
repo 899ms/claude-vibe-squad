@@ -1771,7 +1771,7 @@ Highlights useful to specialists:
 - Smart-contract: chain-construct-smart-contract, evm-audit-flow, solana-audit-flow, defi-invariant-check, vulnhunter-solana, gptscan-prompt-templates
 - Security: agentic-safety-audit, semgrep-rule-author, supply-chain-audit, web-vuln, github-recon, osint-platform-audit, pre-audit-threat-model
 - Frontend/UI: frontend-design, design-token-governance, a11y-audit, react-performance-loop, figma-* (10+ skills)
-- Process: brainstorming, writing-plans, writing-skills, executing-plans, verification-before-completion, test-driven-development, systematic-debugging
+- Process: brainstorming, writing-plans, executing-plans, verification-before-completion, test-driven-development, systematic-debugging (writing-skills authors SKILL.md files; it was retired from the writing specialists on 2026-09-18 in favour of copy-refinement and de-ai-before-delivery)
 - Memory/knowledge: kg-integrity-gate, stale-knowledge-purge, brain-trio-amendment-authoring  *(skill names retain the `kg-` prefix; they are cited verbatim by specialist files and checked by the catalog validator, so the names are not renamed here)*
 - Multi-model: cross-provider-dissent, council-consensus, cross-model-verification, multi-stance-audit-fanout
 

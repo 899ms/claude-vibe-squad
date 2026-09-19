@@ -1,6 +1,6 @@
-# Cutover-ready security MCP stack
+# Security MCP stack
 
-This directory controls the restart-gated Claude and gpt-codex security MCP cutover. The project-local lane files are now populated, but no running lane has been restarted or activated by this work.
+A staged, fail-closed way to add security MCP servers (static analysis, contract audit, findings databases) to the Claude and gpt-codex lanes: stage the lane configuration, validate it with `validate_staged.py`, review it, then activate it on a lane restart. Nothing here activates by itself.
 
 > **Public distribution note.** This document describes a specific host's security-MCP
 > cutover. The lane configuration files, staged review mirrors, and stack inputs it refers

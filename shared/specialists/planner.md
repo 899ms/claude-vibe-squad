@@ -26,7 +26,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 
 ## When to escalate
 
-- If the goal is too vague to decompose, set `status: blocked`, ask 2–3 specific clarifying questions, and return.
+- If the goal is too vague to decompose, set `status: needs_human` (a question for the operator, not a terminal block), ask 2–3 specific clarifying questions, and return.
 - If constraints conflict irreconcilably (e.g. deadline vs scope), stop and surface the trade-off to the operator rather than silently choosing one.
 - If planning reveals the work needs a write-scope / ownership split the packet didn't grant, flag it to Chrono to re-scope before execution begins.
 

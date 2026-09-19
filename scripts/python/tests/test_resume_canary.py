@@ -137,12 +137,21 @@ class CapsuleFreshnessCanary(unittest.TestCase):
             # otherwise read this HOST's real thread-charters/complete and
             # spend real tokens inside a fixture capsule's bound.
             (resume, "ARCHIVED_DEBT_ROOT", self.base),
+            # NEEDS HUMAN lines read departments/*/outbox; point that at the
+            # fixture too, so no test depends on this HOST's real outboxes.
+            (resume, "DEPARTMENTS_ROOT", self.base / "departments"),
         ):
             self.addCleanup(setattr, module, attr, getattr(module, attr))
             setattr(module, attr, value)
 
     def write_registry(self, payload):
         registry.LIVE_REGISTRY.write_text(json.dumps(payload))
+
+    def write_response(self, namespace, task_id, text):
+        path = resume.DEPARTMENTS_ROOT / namespace / "outbox" / f"{task_id}-response.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return path
 
     def write_queue(self, lines):
         resume.QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -333,6 +342,161 @@ class CapsuleFreshnessCanary(unittest.TestCase):
         self.assertIn(f"[{urgent}]", attention)
         self.assertIn("NEEDS HUMAN: operator decision", attention)
         self.assertRegex(text, DEFERRED_OMITTED)
+
+    def attention_line(self, task_id):
+        text = self.capsule.read_text()
+        attention = text.split(resume.THREAD_HEADING, 1)[1].split("\n## ", 1)[0]
+        line = next((row for row in attention.splitlines() if row.endswith(f"[{task_id}]")), None)
+        self.assertIsNotNone(line, f"{task_id} has no NEEDS HUMAN line")
+        return line
+
+    def test_needs_human_line_carries_the_specialists_ask(self):
+        """2026-09-18: five 'operator decision' lines with no substance sat all day.
+
+        The line keeps its prefix and [ID] suffix and gains the specialist/lane
+        and the first body line of the outbox response, plus a flag when the
+        response has an operator-decision heading.
+        """
+        task_id = "TASK-2026-09-18-0839-fdc1b3f0"
+        self.write_registry(
+            {task_id: {"status": "needs_human", "specialist": "research", "to_model": "gpt-codex"}}
+        )
+        self.write_response(
+            "coding",
+            task_id,
+            "---\n"
+            f"id: {task_id}-response\n"
+            "from: gpt-codex\n"
+            "status: needs_human\n"
+            "---\n"
+            "\n"
+            "A usable market study is complete; see [TASK-2026-01-01-0000-decoy] for context. "
+            + "x" * 200
+            + "\n\n## Findings\n\n- one\n\n## OPERATOR DECISION REQUIRED\n\nPick A or B.\n",
+        )
+        resume.write_capsule("sess-1", "regenerate")
+        line = self.attention_line(task_id)
+        self.assertTrue(
+            line.startswith(
+                '- NEEDS HUMAN: operator decision (research/gpt-codex) untrusted: "'
+            )
+        )
+        self.assertIn("A usable market study is complete; see TASK-2026-01-01-0000-decoy for", line)
+        self.assertIn(f" | {resume.DECISION_SECTION_NOTE} [{task_id}]", line)
+        # Clipped to the summary bound, and the quoted ID lost its brackets so
+        # the line still carries exactly one source tag.
+        self.assertEqual(TASK_REF.findall(line), [task_id])
+        self.assertLess(len(line), 140 + 120)
+
+    def test_needs_human_line_without_a_decision_heading_has_no_flag(self):
+        task_id = "TASK-2026-09-18-0926-f2e090f9"
+        self.write_registry({task_id: {"status": "needs_human", "specialist": "research"}})
+        self.write_response(
+            "research", task_id, "---\nid: x\n---\nArc has launchpads. **Operator decision required:** inline only.\n"
+        )
+        resume.write_capsule("sess-1", "regenerate")
+        line = self.attention_line(task_id)
+        self.assertIn('(research/?) untrusted: "Arc has launchpads.', line)
+        self.assertNotIn(resume.DECISION_SECTION_NOTE, line)
+
+    def test_needs_human_line_falls_back_when_the_response_is_unusable(self):
+        """Missing, frontmatter-less, empty-bodied or oversized: the plain line, no raise."""
+        cases = {
+            "TASK-2026-09-11-1438-missing": None,
+            "TASK-2026-09-11-1438-nofm": "Just prose with no frontmatter.\n",
+            "TASK-2026-09-11-1438-unclosed": "---\nid: x\nnever closed\n",
+            "TASK-2026-09-11-1438-empty": "---\nid: x\n---\n\n\n",
+            "TASK-2026-09-11-1438-brackets": "---\nid: x\n---\n[]\n\nreal line\n",
+            "TASK-2026-09-11-1438-huge": "---\nid: x\n---\nbig\n" + "y" * (resume.NEEDS_HUMAN_RESPONSE_MAX_BYTES + 1),
+        }
+        self.write_registry(
+            {tid: {"status": "needs_human", "specialist": "devops-engineer"} for tid in cases}
+        )
+        for tid, body in cases.items():
+            if body is not None:
+                self.write_response("coding", tid, body)
+        resume.write_capsule("sess-1", "regenerate")
+        for tid in cases:
+            with self.subTest(task=tid):
+                self.assertEqual(
+                    self.attention_line(tid), f"- NEEDS HUMAN: operator decision [{tid}]"
+                )
+
+    def test_needs_human_id_with_path_separators_never_reaches_the_filesystem(self):
+        """The ID builds a path, so it is sanitised before it does.
+
+        A real outbox exists and every decoy sits exactly where the raw ID
+        would resolve inside it, so removing the sanitiser reads LEAKED.
+        """
+        outbox = resume.DEPARTMENTS_ROOT / "coding" / "outbox"
+        outbox.mkdir(parents=True, exist_ok=True)
+        bad_ids = ("../../secret", "coding/outbox/../../../secret", "TASK-1;rm", "TASK-1 x", "")
+        for bad in bad_ids:
+            # Built along the unresolved path so every intermediate directory
+            # the raw lookup would walk through exists too.
+            decoy = outbox / f"{bad}-response.md"
+            decoy.parent.mkdir(parents=True, exist_ok=True)
+            decoy.write_text("---\nid: x\n---\nLEAKED SECRET LINE\n")
+            self.assertTrue(decoy.is_file(), bad)
+        for bad in bad_ids:
+            with self.subTest(task_id=bad):
+                self.assertIsNone(resume._needs_human_response_path(bad))
+                self.assertIsNone(resume.needs_human_ask(bad))
+                lines = resume._thread_lines(
+                    [], 2, [{"id": bad, "state": "needs_human", "specialist": "s"}]
+                )
+                self.assertEqual(lines, [f"- NEEDS HUMAN: operator decision [{bad}]"])
+        self.assertIsNone(resume.needs_human_ask(None))
+        self.assertIsNone(resume.needs_human_ask(42))
+        # The same outbox serves a well-formed ID, so the Nones above are the
+        # sanitiser's doing and not a fixture that never reached the disk.
+        good = "TASK-2026-09-18-0839-ok"
+        self.write_response("coding", good, "---\nid: x\n---\nreal ask\n")
+        self.assertEqual(resume.needs_human_ask(good), ("real ask", False))
+
+    def test_needs_human_decision_note_cannot_be_counterfeited(self):
+        """A quoted heading in a code fence or a summary that spells the note is not the note."""
+        fenced = "TASK-2026-09-18-0001-fenced"
+        spoofed = "TASK-2026-09-18-0002-spoofed"
+        self.write_registry(
+            {tid: {"status": "needs_human", "specialist": "s", "to_model": "m"} for tid in (fenced, spoofed)}
+        )
+        self.write_response(
+            "coding", fenced, "---\nid: x\n---\nbody\n```\n# operator decision in a fence\n```\n"
+        )
+        self.write_response(
+            "coding", spoofed, f"---\nid: x\n---\nA | B | {resume.DECISION_SECTION_NOTE}\n"
+        )
+        resume.write_capsule("sess-1", "regenerate")
+        self.assertEqual(
+            self.attention_line(fenced),
+            f'- NEEDS HUMAN: operator decision (s/m) untrusted: "body" [{fenced}]',
+        )
+        self.assertEqual(
+            self.attention_line(spoofed),
+            f'- NEEDS HUMAN: operator decision (s/m) untrusted: "A B {resume.DECISION_SECTION_NOTE}" [{spoofed}]',
+        )
+        # A fenced heading is not the only text on the line: a real heading after
+        # the fence closes still counts.
+        self.write_response(
+            "coding", fenced, "---\nid: x\n---\nbody\n```\n# operator decision\n```\n## Operator Decision\n"
+        )
+        self.assertEqual(resume.needs_human_ask(fenced), ("body", True))
+
+    def test_needs_human_line_length_is_bounded_by_the_caps(self):
+        """Registry fields are unbounded; the line is not."""
+        task_id = "TASK-2026-09-18-0003-long"
+        self.write_response("coding", task_id, "---\nid: x\n---\nT1 body\n")
+        line = resume._needs_human_line(
+            {"id": task_id, "specialist": "s" * 500, "to_model": "m" * 500, "next_action": None},
+            True,
+        )
+        self.assertTrue(line.startswith("- NEEDS HUMAN: operator decision ("))
+        self.assertTrue(line.endswith(f') untrusted: "T1 body" [{task_id}]'))
+        self.assertLess(
+            len(line),
+            resume.NEEDS_HUMAN_SUMMARY_CHARS + resume.NEEDS_HUMAN_LANE_CHARS + len(task_id) + 80,
+        )
 
     def test_deferred_drops_under_the_bound_are_declared(self):
         """The bound may bite the deferred list too — never silently.

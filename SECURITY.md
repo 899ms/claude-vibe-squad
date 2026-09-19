@@ -4,7 +4,7 @@
 
 Vibe Squad develops on a single `main` branch — there are no release or
 maintenance branches, so security fixes land on `main` and are not backported to
-tagged releases. The current release is **v1.1.7**; the full tag history is in
+tagged releases. The current release is **v1.1.8**; the full tag history is in
 `git tag` and every released version has a section in `CHANGELOG.md`, with work
 since the latest release tracked under the changelog's `Unreleased` section.
 

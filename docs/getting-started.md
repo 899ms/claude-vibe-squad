@@ -28,6 +28,10 @@ npm install -g @openai/codex                     # codex
 uv tool install kimi-cli                          # kimi
 ```
 
+These run vendor code as your user. Pin a version where the registry allows it
+(`npm install -g @openai/codex@<version>`, `uv tool install 'kimi-cli==<version>'`) and read an
+installer script before piping it to a shell.
+
 The other two have no package-manager install and must be obtained from their
 vendors:
 

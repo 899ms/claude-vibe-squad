@@ -10,8 +10,10 @@ Chrono-side proactive compaction. The operator triggers via slash phrase. Chrono
 
 1. Reads the live board partition via `chrono_state.registry.registry_view()` and confirms no
    live work is in flight. Whether context pressure warrants compacting is Chrono's judgment
-   against `shared/lifecycle.md` § 8 — there is no predicate to call, and no token counter to
-   call it with (`shared/lifecycle.md` § 9: pressure is inferred from proxy signals only).
+   against `shared/lifecycle.md` § 8. The context tripwire hook (`bin/context-tripwire.sh`)
+   already reports the measured token count on every prompt once it passes 400k, so a
+   WARN/HARD line in the current turn is the direct signal; below that, pressure is inferred
+   from the § 9 proxy signals.
 2. If blockers exist (live dispatches), surfaces them to the operator and asks whether to proceed
    anyway — likewise for any unclassified registry status, which the partition cannot vouch for.
 3. Externalizes load-bearing state to the Vault via the current `record("learning", {...})` writer — captures active decisions (authority), open tasks, pending approvals, and the next action.

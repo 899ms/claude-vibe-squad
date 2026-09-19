@@ -1409,7 +1409,8 @@ for plist in "${DOCTOR_LAUNCHAGENTS_DIR}"/*.plist; do
     plist_repo_scripts=0
     while IFS= read -r abs_path; do
         [[ -n "$abs_path" ]] || continue
-        rel="${abs_path##*/Obsidian-Claude-Vibe-Squad/}"
+        # Strip this checkout's own root, whatever it is named; a fixed name only matched one machine.
+        rel="${abs_path#"${VAULT_ROOT%/}/"}"
         [[ "$rel" == "$abs_path" ]] && continue
         REGISTERED_COUNT=$((REGISTERED_COUNT + 1))
         plist_repo_scripts=$((plist_repo_scripts + 1))

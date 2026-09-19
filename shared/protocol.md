@@ -403,10 +403,14 @@ status: complete | needs_review | needs_human | blocked
 return_artifact: <the return_artifact path>
 capability_card_sha256: <exact dispatched hash> # required only when the packet carries a capability snapshot
 artifact_bundle_sha256: <64-hex canonical artifact-list digest> # optional explicit bundle declaration
+skills_applied: [<skill>, ...] # optional; the skills actually used, so routing can be audited
+skill_gaps: [<skill>, ...] # optional; declared skills the worker could not resolve or apply
 ---
 
 One-paragraph summary of what you did (the reconciler surfaces this first paragraph).
 ```
+
+`skills_applied` and `skill_gaps` are optional and informational today: they let a later audit see whether a lane used the skills its specialist declares (measured 2026-09-18: six of eight contract-work returns carried neither). They settle nothing.
 
 `artifact_bundle_sha256` is the envelope's only artifact-bundle declaration. Its value is one scalar containing
 exactly 64 hexadecimal characters (letter case is normalized). When present and valid, reconciliation keeps the

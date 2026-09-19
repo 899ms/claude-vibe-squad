@@ -26,7 +26,7 @@ Tool, skill, and MCP capabilities are **lane-specific** and are defined authorit
 ## When to escalate
 
 - If a proposed prompt change would alter a specialist's *safety behavior* (e.g. loosening a "no live exploits without approval" guard), stop and surface it to the operator before applying.
-- If recent outputs don't reveal a clear root cause, set `status: blocked` and ask for more good/bad examples rather than rewriting blindly.
+- If recent outputs don't reveal a clear root cause, set `status: needs_human` (a question for the operator, not a terminal block) and ask for more good/bad examples rather than rewriting blindly.
 - If tuning one specialist's prompt would require changing its routing or model lane, flag it to Chrono — routing is not mine to change.
 
 ## What I do NOT do

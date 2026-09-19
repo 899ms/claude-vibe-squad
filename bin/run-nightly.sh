@@ -176,6 +176,10 @@ run_phase "registry-reconciler"  "${VAULT_ROOT}/bin/registry-reconciler.sh"
 # strict local cleanup-decision gate, while --public-export certifies the
 # projector's candidate tree rather than this private daily-driver checkout.
 run_phase "memory-audit"         "${VAULT_ROOT}/bin/memory-audit.sh"
+# Renders _state/curation-queue.jsonl (the not_useful/incorrect demotion queue) into the
+# nightly log so it is read at a session boundary. Renderer only: it never invalidates.
+# Measured 2026-09-19: 3,209 flags over 1,322 notes and nothing had ever read them.
+run_phase "curation-review"      "${VAULT_ROOT}/bin/curation-review.sh"
 run_phase "sweep-active"         "${VAULT_ROOT}/bin/sweep-active.sh"
 run_phase "browser-keep-alive"   "${VAULT_ROOT}/bin/browser-keep-alive.sh"
 # Board scratch and settled worktrees. The reaper existed but nothing invoked

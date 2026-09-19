@@ -6,7 +6,7 @@ generated_by: lane-capability-registry/v1
 capability_registry_sha256: d3388ec330d2307e11cf0845c48cc8bc185780c3c1cb6065f06ce13b34e4430a
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: 146310977227fae7833652053265e5f7f29bde12d6a39192ced810eeb32e58fd
+capability_source_sha256: ac8de362ad431d3f6ee73ff317397ef3a628e6e7846040233c3771750b248e13
 mcps: ["chrono-vault"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---

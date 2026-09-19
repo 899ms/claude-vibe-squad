@@ -9,6 +9,42 @@ or " (YYYY-MM-DD)". Other release header text is rejected; a released header
 is required.
 -->
 
+## v1.1.8 - 2026-09-19
+
+A repair release. Two guards that had failed silently, and the coordinator's first
+direct measure of its own context.
+
+### Fixed
+
+- The tmux coordinator check accepted only `session:index.pane`, while the focus-gate hook
+  passes the pane id (`%N`) and the outbox watcher passes `session:name.pane`. Both callers
+  got "no coordinator" and exited silently, so the focus gate skipped every prompt and every
+  board nudge was dropped, including `needs_human` returns that then sat unseen. The helper
+  now resolves any of the three spellings against tmux's own pane list and queries by pane
+  id; a regression test drives it with a fake tmux (`shared/chrono-pane.sh`,
+  `scripts/python/tests/test_chrono_pane_helper.py`).
+- The resume capsule's `NEEDS HUMAN` lines carried only an id. They now carry the specialist,
+  the lane and the specialist's own first line, bounded and path-safe.
+- Two shared briefs told workers to use `status: blocked` for clarification questions;
+  `needs_human` is the state that reaches the operator.
+
+### Added
+
+- `bin/context-tripwire.sh`, a `UserPromptSubmit` hook for the coordinator session: it reads
+  the last real usage record of the coordinator's own transcript and injects a WARN at 400k
+  tokens and a HARD stop at 600k (env overrides). Synthetic zero-usage records after API
+  errors are skipped. Registered in `chrono/.claude/settings.json`.
+- Optional `skills_applied` / `skill_gaps` keys on the worker response envelope.
+- The nightly run now renders the memory curation queue so it is read at a session boundary.
+- The writing specialists carry a real prose skill (`copy-refinement`, plus
+  `de-ai-before-delivery` on the claude lane) and a new `persuasive-technical-writing` skill;
+  `writing-skills`, which authors SKILL.md files, was retired from them. Adapter capability
+  hashes were refreshed across 98 adapters after that change.
+
+### Changed
+
+- `shared/lifecycle.md` no longer claims there is no token counter for the coordinator.
+
 ## v1.1.7
 
 The release where nothing was broken and almost everything was mis-measured. v1.1.6 hunted

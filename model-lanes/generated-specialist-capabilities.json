@@ -1089,11 +1089,13 @@
       ],
       "skills": [
         "claim-verification",
-        "skill-description-trigger-authoring",
-        "writing-skills"
+        "copy-refinement",
+        "de-ai-before-delivery",
+        "persuasive-technical-writing",
+        "skill-description-trigger-authoring"
       ],
       "specialist": "brand-voice",
-      "surface_sha256": "064b8aea8abfc06dccd2b205483df83e45a8ec8baab75803e889e3291f720fca",
+      "surface_sha256": "16ebadbc06f318252b5c3db64a2b2e01f57171944753d996864bd32226791d80",
       "tools": []
     },
     {
@@ -1125,11 +1127,11 @@
       "primary_plan": [],
       "skills": [
         "claim-verification",
-        "skill-description-trigger-authoring",
-        "writing-skills"
+        "copy-refinement",
+        "skill-description-trigger-authoring"
       ],
       "specialist": "brand-voice",
-      "surface_sha256": "64985c2924d71986ca049f82c7d85179bf2d11dbb6fe815e0447ef671c7dcab3",
+      "surface_sha256": "ed775abd7b55952874eeb9639d20c994395be38909499c95316ce2b1789e325c",
       "tools": []
     },
     {
@@ -1959,11 +1961,12 @@
       "skills": [
         "claim-verification",
         "copy-refinement",
-        "skill-description-trigger-authoring",
-        "writing-skills"
+        "de-ai-before-delivery",
+        "persuasive-technical-writing",
+        "skill-description-trigger-authoring"
       ],
       "specialist": "editor",
-      "surface_sha256": "4b523d17186a97b6a6d5c11f9c516d0f0b6cf80f006229ac702abdacedb41a75",
+      "surface_sha256": "0edbcd2edfdc0d038ffce719a9a19806d06deac41e30e469b70cb34b81d648fc",
       "tools": []
     },
     {
@@ -2003,11 +2006,10 @@
       "skills": [
         "claim-verification",
         "copy-refinement",
-        "skill-description-trigger-authoring",
-        "writing-skills"
+        "skill-description-trigger-authoring"
       ],
       "specialist": "editor",
-      "surface_sha256": "500a94bcf8649dc7a38c76a1622a35e2ac67bc6401d3c52f15129609b638d773",
+      "surface_sha256": "c4599243608752fc89879903e4eca54af0df78bb9fa438871eb1de0fa3f90935",
       "tools": []
     },
     {
@@ -7567,11 +7569,13 @@
       "primary_plan": [],
       "skills": [
         "claim-verification",
-        "skill-description-trigger-authoring",
-        "writing-skills"
+        "copy-refinement",
+        "de-ai-before-delivery",
+        "persuasive-technical-writing",
+        "skill-description-trigger-authoring"
       ],
       "specialist": "social-strategist",
-      "surface_sha256": "ffe3ace5c969c4b038523e16118fd10d29272f8afdd7816e274d0418c9e3d25f",
+      "surface_sha256": "0edbcd2edfdc0d038ffce719a9a19806d06deac41e30e469b70cb34b81d648fc",
       "tools": []
     },
     {
@@ -9648,9 +9652,9 @@
     }
   ],
   "generated": true,
-  "policy_sha256": "bab751e4fc6e80318b22b12cb5f6865560c1fc1a005a2c3e76c2151c7766ded7",
+  "policy_sha256": "2cd22d8eb482ceb15a2f2b02fbef8b902c3c88ba1f644e7f98d0bc46ee71a3f9",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "7dd25cb116e2a776985f507f0183f9ef503bf381ae192cd5b5f00ba8f81a6b2b",
-  "surface_count": 112
+  "source_sha256": "ac8de362ad431d3f6ee73ff317397ef3a628e6e7846040233c3771750b248e13",
+  "surface_count": 111
 }
