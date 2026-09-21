@@ -28,9 +28,10 @@ Generated adapters, stale handoffs, old specs, and runtime logs are not source o
 
 Confusing these is the single most common source of "is this doc out of date?" in this repo.
 
-- **`V1.1.8` is the current release version.** Git tags run `v1.1.0` through `v1.1.6`; `v1.1.7` and
-  `v1.1.8` are tagged on `main` by Chrono as each release is cut; the next upgrade would be `V1.1.9`. This is the
-  version of the system as a product.
+- **`V1.1.9` is the current release version.** Git tags run `v1.1.0` through `v1.1.6`; `v1.1.7`
+  onward are tagged by Chrono on the PUBLISHED public commit as each release is cut, so they are
+  disjoint from private `main` — `git merge-base --is-ancestor v1.1.8 HEAD` correctly returns
+  false. The next upgrade would be `V1.1.10`. This is the version of the system as a product.
 - **`V3` / `V4` are architecture generations**, not old release numbers. Git tags `v3-final` and
   `v4-baseline-2026-08-07`. The dispatcher still runs a **live V3 compatibility bridge**, so
   `shared/protocol.md` saying "the staged V4 boundary" is current, not stale. Renaming these to

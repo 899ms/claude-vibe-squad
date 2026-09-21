@@ -164,6 +164,7 @@ def _validate_contract(
 ) -> PacketContract:
     # Delegated, not restated: a copy here could drift from the layer that gates.
     fields = {**fields, "mode": context_builder.resolve_packet_mode(fields)}
+    context_builder.resolve_work_repo(repo_root, fields)
     task_id = _field(fields, "id")
     specialist = _field(fields, "specialist")
     to_model = _field(fields, "to_model")
@@ -323,6 +324,9 @@ def _write_scope_advisories(
 ) -> tuple[Mapping[str, Any], ...]:
     """Return fail-open authoring diagnostics; these must never gate dispatch."""
     try:
+        work_binding = context_builder.resolve_work_repo(repo_root, fields)
+        if work_binding:
+            repo_root = work_binding[0]
         write_scope = context_builder.parse_scope(
             fields.get("write_scope", ""), field="write_scope"
         )

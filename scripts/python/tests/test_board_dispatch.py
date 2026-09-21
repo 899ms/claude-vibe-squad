@@ -117,6 +117,7 @@ class BoardDispatchShellTests(unittest.TestCase):
             "_board_stdout_streamed": [False],
             "execution_kind": "lane",
             "handle": type("Handle", (), {"worktree_root": IMPLEMENTATION_ROOT})(),
+            "worker_cwd": IMPLEMENTATION_ROOT,
             "lane": "codex",
             "os": os,
             "prepared": prepared,
@@ -1725,7 +1726,11 @@ Dry-run dispatch test only.
         self.assertIn('return (*base, "--model", model)', builder)
         self.assertIn('"--yolo",\n        "--thinking"', builder)
         self.assertIn(
-            'str(handle.worktree_root / "model-lanes" / "kimi" / "main.yaml")',
+            'str(lane_config_root / "model-lanes" / "kimi" / "main.yaml")',
+            supervisor,
+        )
+        self.assertIn(
+            "lane_config_root = repo_path if external_work_repo else handle.worktree_root",
             supervisor,
         )
         self.assertIn("def kimi_role_launcher(", supervisor)

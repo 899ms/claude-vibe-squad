@@ -35,19 +35,52 @@ class PublicPluginCapabilityTests(unittest.TestCase):
         cls.check = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cls.check)
 
+    def public_surface(self, root: Path) -> Path:
+        """Project private inputs; audit existing public inputs without repair."""
+        shutil.copytree(ROOT / "model-lanes", root / "model-lanes")
+        for relative in ("shared/specialist-runtime-map.tsv",
+                         "tools/export/policy/path-policy.json"):
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(ROOT / relative, path)
+        payload = json.loads((root / "model-lanes/specialist-lane-capabilities.v1.json").read_text())
+        if PLUGIN_ROOT.is_dir() and "public_projection" not in payload:
+            sys.path.insert(0, str(ROOT / "model-lanes"))
+            from project_public_capabilities import project_public_capabilities
+            project_public_capabilities(
+                root, self.check.load_policy(root / "tools/export/policy/path-policy.json")
+            )
+        return root
+
+    def test_existing_public_surface_is_audited_without_repair(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            published = self.public_surface(Path(temporary) / "published")
+            source = published / "model-lanes/specialist-lane-capabilities.v1.json"
+            payload = json.loads(source.read_text())
+            entry = next(e for e in payload["entries"]
+                         if (e["specialist"], e["lane"]) == ("experimental-attacker", "gpt-codex"))
+            next(r for r in entry["mcps"] if r["id"] == "chrono-dedup").update(
+                availability="available", evidence="installed-or-shared-authored")
+            source.write_text(json.dumps(payload, indent=2) + "\n")
+            poisoned = source.read_bytes()
+            with mock.patch.dict(globals(), ROOT=published, PLUGIN_ROOT=published / "plugins/chrono-dedup"):
+                audited = self.public_surface(Path(temporary) / "audited")
+            self.assertEqual((audited / source.relative_to(published)).read_bytes(), poisoned)
+            self.assertTrue(any(i["identifier"] == "chrono-dedup" and
+                                i["path"] == source.relative_to(published).as_posix()
+                                for i in self.check.audit(audited)))
+
     def test_public_declarations_have_no_withheld_plugin_providers(self) -> None:
-        self.assertEqual(self.check.audit(ROOT), [])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = self.public_surface(Path(temporary))
+            self.assertEqual(self.check.audit(root), [])
 
     def test_new_withheld_component_is_detected_in_direct_and_brokered_adapters(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
+            root = self.public_surface(Path(temporary))
             # Only declaration inputs are copied; no plugin implementation is
             # present. The control therefore also covers a fresh public clone.
-            shutil.copytree(ROOT / "model-lanes", root / "model-lanes")
-            (root / "shared").mkdir()
-            shutil.copy2(ROOT / "shared/specialist-runtime-map.tsv", root / "shared")
             policy_path = root / "tools/export/policy/path-policy.json"
-            policy_path.parent.mkdir(parents=True)
             policy = json.loads((ROOT / "tools/export/policy/path-policy.json").read_text())
             policy["deny"].append("plugins/control-withheld/**")
             policy_path.write_text(json.dumps(policy))
@@ -63,13 +96,16 @@ class PublicPluginCapabilityTests(unittest.TestCase):
 
     def test_policy_change_catches_source_index_lane_and_runtime_summaries(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
+            root = self.public_surface(Path(temporary))
             policy_path = Path(temporary) / "policy.json"
             policy = json.loads((ROOT / "tools/export/policy/path-policy.json").read_text())
             # A real shipped plugin is the positive control; no component
             # spellings are baked into the checker itself.
             policy["deny"].append("plugins/chrono-vault/**")
             policy_path.write_text(json.dumps(policy))
-            issues = self.check.audit(ROOT, self.check.load_policy(policy_path))
+            issues = self.check.audit(root, self.check.load_policy(policy_path))
+            self.assertEqual({i["identifier"] for i in issues},
+                             {"chrono-vault", "lead:chrono-vault"})
             paths = {i["path"] for i in issues}
             self.assertTrue({"model-lanes/specialist-lane-capabilities.v1.json",
                              "model-lanes/generated-specialist-capabilities.json",
@@ -80,11 +116,12 @@ class PublicPluginCapabilityTests(unittest.TestCase):
 
     def test_unknown_policy_path_fails_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
+            root = self.public_surface(Path(temporary))
             policy_path = Path(temporary) / "policy.json"
             policy = json.loads((ROOT / "tools/export/policy/path-policy.json").read_text())
             policy["public"].remove("plugins/**")
             policy_path.write_text(json.dumps(policy))
-            issues = self.check.audit(ROOT, self.check.load_policy(policy_path))
+            issues = self.check.audit(root, self.check.load_policy(policy_path))
             self.assertTrue(issues)
             self.assertTrue(any(i["rule"] == "<no matching rule>" for i in issues))
 

@@ -782,7 +782,15 @@ def launch_if_canary_passes(
         prepared_or_result.close()
 
 
-def _load_task_request(path: Path) -> dict[str, object]:
+def _load_task_request(
+    path: Path, *, work_repo_root: Path | None = None,
+    work_base_branch: str | None = None,
+) -> dict[str, object]:
+    """Validate a request using an optional controller-authenticated WORK pair.
+
+    The pair is never taken from request JSON or worker-controlled environment.
+    The supervisor supplies it only from its authenticated launch authority.
+    """
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
@@ -807,6 +815,24 @@ def _load_task_request(path: Path) -> dict[str, object]:
     if isinstance(payload["generation"], bool) or not isinstance(payload["generation"], int) or payload["generation"] <= 0:
         raise HygieneError("generation must be a positive integer")
     expected_branch = os.environ.get("SQUAD_BASE_BRANCH", "v2")
+    if (work_repo_root is None) != (work_base_branch is None):
+        raise HygieneError("work_repo requires a bound root and base branch together")
+    if work_repo_root is not None:
+        if not isinstance(work_base_branch, str) or not work_base_branch:
+            raise HygieneError("work_repo bound base branch is invalid")
+        root = Path(work_repo_root)
+        if not root.is_absolute() or not root.is_dir() or root.resolve() != root:
+            raise HygieneError("work_repo bound root must be a canonical checkout directory")
+        branch_exists = subprocess.run(
+            ["/usr/bin/git", "-C", str(root), "show-ref", "--verify", "--quiet",
+             f"refs/heads/{work_base_branch}"],
+            capture_output=True, text=True,
+            env={"LC_ALL": "C", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"},
+            timeout=5, check=False, close_fds=True,
+        )
+        if branch_exists.returncode:
+            raise HygieneError("work_repo bound base branch does not exist")
+        expected_branch = work_base_branch
     if payload["branch"] != expected_branch:
         raise HygieneError(f"supervisor accepts branch {expected_branch} only")
     task_root = Path(str(payload["task_root"]))

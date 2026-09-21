@@ -1,8 +1,5 @@
-"""Bounded Chrono active-task registry.
-
-`active.json` holds only nonterminal tasks; terminal tasks move to an append-only
-monthly archive. This replaces reading a 2.24MB / 853-record monolith into Chrono's
-context at every session start when only ~17 records are actually live.
+"""Read the live Chrono registry at `_state/active-tasks.json`.
+Partition live and deferred work for the capsule, and report unknown statuses.
 """
 
 from __future__ import annotations
@@ -12,20 +9,12 @@ import os
 from pathlib import Path
 
 TASKS_DIR = Path(os.environ.get("VAULT_ROOT", ".")) / "_state" / "tasks"
-TERMINAL = {"completed", "closed", "superseded", "blocked_final"}
 
 # The registry the live board actually feeds (38 writers, updated continuously).
 # `TASKS_DIR/active.json` above is the bounded registry from the 2026-07-24
 # one-shot migration; nothing has fed it since, so it is NOT the capsule's source.
 LIVE_REGISTRY = Path(os.environ.get("VAULT_ROOT", ".")) / "_state" / "active-tasks.json"
 
-# Legacy _state/active-tasks.json vocabulary → the states that are still live.
-LEGACY_NONTERMINAL = {"in-flight", "review-required", "blocked"}
-_LEGACY_NEXT_ACTION = {
-    "blocked": "unblock or rework",
-    "review-required": "settle review",
-    "in-flight": "await completion / verify",
-}
 
 # Every status the live registry is known to emit, partitioned exhaustively.
 # Exhaustive is the point: an unclassified status must be loud (see

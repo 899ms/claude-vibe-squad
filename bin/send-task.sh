@@ -1337,6 +1337,14 @@ if end is None:
     print("predispatch error: unterminated task frontmatter block", file=sys.stderr)
     sys.exit(2)
 frontmatter = "\n".join(lines[1:end])
+if re.search(r"^work_repo:", frontmatter, re.M):
+    sys.path.insert(0, str(Path(root) / "scripts/python"))
+    from dispatch_context_builder import resolve_work_repo, DispatchContextError
+    try:
+        root = resolve_work_repo(Path(root), {"work_repo": field("work_repo")})[0]
+    except DispatchContextError as exc:
+        print(f"predispatch error: {exc}", file=sys.stderr)
+        sys.exit(2)
 ret = field("return_artifact")
 ws  = field("write_scope").strip("[]")
 paths = [p.strip().strip("'\"") for p in ws.split(",") if p.strip()]

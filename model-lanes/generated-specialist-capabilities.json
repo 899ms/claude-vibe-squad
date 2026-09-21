@@ -2167,7 +2167,7 @@
       "limitations": [
         "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
         "declares only capabilities already proven on the claude lane by an existing claude entry; anything the codex route carries but claude has not demonstrated is treated as lane-not-wired rather than assumed",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "chrono-recon",
@@ -2373,7 +2373,7 @@
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally, while web sources and metered research operations require a Chrono-side invocation with an explicit budget",
         "gdb is limited to offline binary parsing on this host; brakeman still needs an operator install; eslint-security and litesvm are target-project dependencies rather than host executables",
         "active scanners and exploit tooling remain bounded by target scope, rules of engagement, and the offensive_execution operator gate",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "chrono-recon",
@@ -2575,7 +2575,7 @@
         "research MCP operations are lead-brokered and unavailable inside Kimi subagents; the tracked operation ids require a Kimi-lead or Chrono handoff rather than a direct child tool call",
         "prior_art_check remains lead-brokered; board workers are network-isolated and only the local chrono-vault source is expected to succeed, while web sources including Solodit require Chrono-side invocation",
         "WebFetch remains harness-only, and active scanners or exploit execution remain bounded by target scope, rules of engagement, and the offensive_execution operator gate",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "lead:chrono-vault",
@@ -2940,7 +2940,7 @@
       "lane": "gpt-codex",
       "limitations": [
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "chrono-research-arsenal",
@@ -3828,7 +3828,7 @@
       "lane": "claude",
       "limitations": [
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "chrono-research-arsenal",
@@ -5809,7 +5809,7 @@
       "lane": "gpt-codex",
       "limitations": [
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "chrono-vault",
@@ -6530,7 +6530,7 @@
       "lane": "claude",
       "limitations": [
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "chrome-devtools",
@@ -7347,7 +7347,7 @@
       "lane": "claude",
       "limitations": [
         "best-effort non-primary route; required capabilities remain anchored to the primary execution plan",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "chrono-research-arsenal",
@@ -8783,7 +8783,7 @@
       "lane": "claude",
       "limitations": [
         "board workers are network-isolated: prior_art_check reaches only chrono-vault locally; HackerOne, Immunefi, GitHub, CVE, OSV, target history, and Solodit require Chrono-side network invocation",
-        "chrono-dedup and prior_art_check require separately provisioned private source; the export policy withholds the plugin. Use manual prior-art searches when absent."
+        "chrono-dedup is available in the private runtime; public export withholds its assignments while retaining the provider operation catalogue. Use manual prior-art searches where the plugin is absent."
       ],
       "mcps": [
         "chrono-research-arsenal",
@@ -9655,6 +9655,6 @@
   "policy_sha256": "2cd22d8eb482ceb15a2f2b02fbef8b902c3c88ba1f644e7f98d0bc46ee71a3f9",
   "schema": "specialist-adapter-capability-index/v2",
   "source": "model-lanes/specialist-lane-capabilities.v1.json",
-  "source_sha256": "ac8de362ad431d3f6ee73ff317397ef3a628e6e7846040233c3771750b248e13",
+  "source_sha256": "c16dad3b4285660ca0e18b0b7ac0a60fca55c745f1656f2f300e65918b773f20",
   "surface_count": 111
 }

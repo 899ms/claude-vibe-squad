@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -177,6 +178,27 @@ class ScopeGlobRefusalTests(unittest.TestCase):
 
 
 class WorktreePoolTests(unittest.TestCase):
+    def test_absent_work_repo_keeps_squad_release_commands_byte_identical(self) -> None:
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = _init_repo(root)
+            pool = wti.WorktreePool(repo, root / "pool", base_branch="v2")
+            before_refs = _git(["for-each-ref", "--format=%(refname) %(objectname)"], cwd=repo).stdout
+            handle = pool.provision("TASK-2026-09-19-2030-legacy-release", "d-" + "e" * 32)
+            self.assertEqual(handle.branch, f"worktree/{handle.task_id}/{handle.attempt_id}")
+            self.assertFalse(handle.external_work_repo)
+            with mock.patch.object(wti, "_run_git", wraps=wti._run_git) as calls:
+                pool.release(handle)
+            # The complete pre-change release command sequence, including the
+            # non-forcing branch deletion, remains byte-identical for squad work.
+            actual = json.dumps([call.args[0] for call in calls.call_args_list]).encode()
+            expected = json.dumps([["worktree", "remove", str(handle.worktree_root)],
+                                   ["branch", "-d", handle.branch]]).encode()
+            self.assertEqual(actual, expected)
+            self.assertEqual(_git(["for-each-ref", "--format=%(refname) %(objectname)"],
+                                  cwd=repo).stdout.encode(), before_refs.encode())
+
     def test_two_concurrent_provisions_get_disjoint_worktree_roots_on_disjoint_branches(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -309,6 +331,7 @@ class TerminalEvidenceOutputIdentityTests(unittest.TestCase):
 
             self.assertEqual(evidence.status, "preserved")
             self.assertEqual(evidence.explicit_output_paths, (self.OUTPUT,))
+            self.assertFalse(evidence.worktree_retained_required)
             preserved = _git(
                 ["show", f"{evidence.evidence_commit}:{self.OUTPUT}"],
                 cwd=repo,

@@ -110,12 +110,15 @@ lead. The config uses four controller-owned local templates. `chrono-vault`,
 `sequential-thinking` uses the exact Homebrew executable. Missing or escaping
 dependencies deny the launch.
 
-These are supported transport templates, not an installation inventory. The public export
-withholds `chrono-dedup`; its source assignments are `needs-operator-install`, so it is absent
-from the generated direct and brokered MCP arrays. A private operator must separately provision
-and verify it before enabling a local assignment; see `README.md` and `THIRD_PARTY.md`.
-Its executable `provides` relations are empty until a usable assignment exists; the optional
-`prior_art_check` operation remains recorded as `needs-operator-install` in the source and index.
+These are supported transport templates, not an installation inventory. The private source
+assigns `chrono-dedup` as `available`; its `prior_art_check` tools are `mcp-operation` records
+with reciprocal `provided_by` links. Direct and brokered provider catalogues retain
+`provides: ["prior_art_check"]` so public operation promises remain detectable.
+The exporter calls `model-lanes/project_public_capabilities.py` on the disposable candidate:
+policy-withheld assignments become `needs-operator-install`, their provider links are removed,
+and adapters, lane surfaces, the index, and runtime summaries are regenerated. The private input
+and provider catalogue stay intact. Candidate source metadata records `public_projection` with
+the policy-derived `withheld_providers`; no private-source availability is changed for export.
 
 Kimi never reads or copies host MCP configuration, commands, arguments, URLs,
 headers, arbitrary environment, or auth values. FastMCP's default subprocess
@@ -194,7 +197,8 @@ capability surface continues to record the same names as `brokered_mcps`.
 
 ## Commands and honesty-gate wiring
 
-`python3 -B model-lanes/check_public_plugin_capabilities.py` checks published MCP declarations
+`python3 -B model-lanes/check_public_plugin_capabilities.py --repo-root "$PUBLIC_CANDIDATE"`
+checks published MCP declarations on the materialized public candidate
 against the export path policy, including source assignments, operation providers, hidden native
 adapters, lane inventories, generated plans, and runtime-map summaries. It rejects a server when
 its conventional `plugins/<server>/.claude-plugin/plugin.json` or `mcp_server.py` path is withheld;

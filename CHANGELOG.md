@@ -9,6 +9,65 @@ or " (YYYY-MM-DD)". Other release header text is rejected; a released header
 is required.
 -->
 
+## v1.1.9 - 2026-09-20
+
+Work that is not the squad itself now runs in its own repository. Plus the export step the
+capability system was missing.
+
+### Added
+
+- **External work repositories.** A packet can name `work_repo: /absolute/main-checkout`
+  (or `WORK_REPO=` through `scripts/send-task.sh`) and the board dispatches against that
+  repository instead of the squad repo. Squad configuration — roles, adapters, registry,
+  mailbox, memory — still comes from the squad root; the work repo supplies the worktree, its
+  own base branch, both ignore checks, the worker's cwd, and the integration target.
+  `write_scope` is relative to the work repo. Absent means today's squad-repo behaviour
+  exactly.
+
+  The value must be a git *main* checkout (not a linked worktree) outside the squad root with
+  an attached current branch; preflight and the dispatcher each refuse anything else and never
+  guess a branch. Worker commits land on `board/<TASK-ID>`. The rail never fast-forwards,
+  checks out, or pushes the work repo's base branch; merging it is a separate, deliberate step
+  this rail does not take.
+
+  Skills are not projected into an external worktree. A relative read-context path that is
+  absent from the work repo falls back to the squad root, so a relative skill path still
+  resolves; an absolute squad-root path is unambiguous and does not rely on that fallback.
+
+- **A capability-projection step in the exporter.** Provider assignments that are private can
+  now be withheld from the public candidate (`public_projection: {withheld_providers: [...]}`)
+  instead of the private source being gutted to achieve a clean public surface. The public
+  candidate still discloses the withheld provider's operation name and the withheld list
+  itself; that is deliberate, not an oversight.
+
+  The same change **restores `chrono-dedup` as an available private provider**: its
+  `prior_art_check` operation is linked again, it is added to the Grok lane surface, and it is
+  assigned to the security specialists. Private deployments gain that capability back; the
+  public projection is what withholds it.
+
+- **Task evidence is excluded from the public export.** Board worker run artifacts under
+  `tools/export/task-evidence/` are now denied by the export path policy. They are retained
+  privately and no longer reach a published candidate.
+
+### Fixed
+
+- The launcher contract regression tested the wrong configuration root after the split, so it
+  could not have caught a real break.
+- `bin/send-task.sh`, `bin/vs-cancel-spawn.sh` and the registry each carried an assumption
+  that the worktree and the squad root were the same repository.
+
+### Known rough edge
+
+For the **squad repo itself**, the rail still integrates in-scope worker commits onto its bound
+base branch (normally `main`) before that task's review settles. This is not limited to tasks
+that complete: when only the return path fails, committed in-scope work is still integrated by
+the recovery path while the task is reported as `blocked`. External repos are protected by the
+`board/<TASK-ID>` branch described above; the squad path is not.
+
+Reviews do gate registry settlement — a non-`APPROVE` verdict fails closed and the entry is
+never marked complete. **They do not gate the commit, and nothing reverts it automatically.**
+Backing out a rejected change on the squad path is a manual step.
+
 ## v1.1.8 - 2026-09-19
 
 A repair release. Two guards that had failed silently, and the coordinator's first

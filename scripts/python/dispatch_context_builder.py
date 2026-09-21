@@ -956,6 +956,61 @@ def packet_evidence_outputs(
     return tuple(outputs)
 
 
+def resolve_work_repo(
+    repo_root: Path, fields: Mapping[str, str]
+) -> tuple[Path, str] | None:
+    """Validate the optional work_repo and bind its current local branch.
+
+    Absence is deliberately a no-op, including for legacy synthetic contexts.
+    Never consult SQUAD_BASE_BRANCH here: it belongs to the configuration repo.
+    """
+    if "work_repo" not in fields:
+        return None
+    value = _unquote(fields["work_repo"])
+    path = Path(value)
+    if not value or not path.is_absolute():
+        raise DispatchContextError("work_repo must be an absolute path")
+    try:
+        work_root = path.resolve(strict=True)
+    except (OSError, ValueError, RuntimeError) as exc:
+        raise DispatchContextError("work_repo must exist") from exc
+    if not work_root.is_dir():
+        raise DispatchContextError("work_repo must be an existing checkout directory")
+    config_root = Path(repo_root).resolve(strict=True)
+    if work_root == config_root or config_root in work_root.parents:
+        raise DispatchContextError("work_repo must not be inside the squad root")
+
+    def git(*args: str) -> str:
+        try:
+            result = subprocess.run(
+                ("/usr/bin/git", "-C", str(work_root), *args),
+                capture_output=True, text=True, timeout=5, check=False,
+                env={"LC_ALL": "C", "PATH": "/usr/bin:/bin",
+                     "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"},
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise DispatchContextError("work_repo Git validation could not run") from exc
+        return result.stdout.strip() if result.returncode == 0 else ""
+
+    top = git("rev-parse", "--show-toplevel")
+    if not top:
+        raise DispatchContextError("work_repo must be a Git checkout")
+    if Path(top).resolve() != work_root:
+        raise DispatchContextError("work_repo must name the Git checkout root")
+    git_dir = git("rev-parse", "--absolute-git-dir")
+    common_dir = git("rev-parse", "--git-common-dir")
+    if not git_dir or not common_dir:
+        raise DispatchContextError("work_repo Git metadata is unavailable")
+    if Path(git_dir).resolve() != (work_root / common_dir).resolve():
+        raise DispatchContextError("work_repo must be a MAIN checkout, not a linked worktree")
+    branch = git("symbolic-ref", "--quiet", "--short", "HEAD")
+    if not branch:
+        raise DispatchContextError("work_repo must have a current branch; detached HEAD is refused")
+    if not git("rev-parse", "--verify", f"refs/heads/{branch}^{{commit}}"):
+        raise DispatchContextError("work_repo current branch must have an existing commit")
+    return work_root, branch
+
+
 def undeclared_gitignored_write_scope(
     repo_root: Path,
     write_scope: Sequence[str],
@@ -1513,6 +1568,8 @@ def build_context(
     # Absent mode -> modeless, resolved once at the gating layer. See
     # resolve_packet_mode() for why this is the rule's single home.
     fields = {**fields, "mode": resolve_packet_mode(fields)}
+    work_binding = resolve_work_repo(root, fields)
+    work_root = work_binding[0] if work_binding else root
     task_id = _unquote(fields.get("id", ""))
     specialist = _unquote(fields.get("specialist", ""))
     namespace = _unquote(fields.get("source_namespace", ""))
@@ -1599,7 +1656,7 @@ def build_context(
             parse_scope(raw_declared_evidence, field="evidence_outputs")
         )
     ignored_undeclared = undeclared_gitignored_write_scope(
-        root,
+        work_root,
         write_scope,
         return_artifact=return_artifact,
         evidence_outputs=evidence_outputs,
@@ -1685,6 +1742,8 @@ def build_context(
         "read_scope": list(read_scope),
         "expected_result_path": return_artifact,
     }
+    if work_binding:
+        plan.update(work_repo_root=str(work_root), work_base_branch=work_binding[1])
     created_at = int(time.time()) if now is None else now
     if (
         isinstance(created_at, bool)
@@ -1759,6 +1818,14 @@ def build_context(
         # file; computed here rather than after assembly so the prompt can say so.
         outbox_relative=expected_outbox,
     )
+    if work_binding:
+        task_prompt += (
+            "\n## Repository roots\n\n"
+            f"Work repository: `{work_root}`; bound base branch: `{work_binding[1]}`. "
+            "Your cwd and repo-relative output paths belong to its isolated worktree. "
+            f"Squad configuration and mailbox source: `{root}`. "
+            "Read the canonical role, lane adapter, and packet from that squad root.\n"
+        )
     if len(task_prompt.encode("utf-8")) > TRUSTED_LAUNCH_PROMPT_LIMIT:
         raise DispatchContextError("task packet is too large for trusted launch prompt")
 
@@ -1846,6 +1913,8 @@ def build_context(
         "expires_at": created_at + 600,
         "nonce": launch_nonce,
     }
+    if work_binding:
+        authority.update(work_repo_root=str(work_root), work_base_branch=work_binding[1])
     return {
         "schema": CONTEXT_SCHEMA,
         "authority": authority,

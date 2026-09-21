@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -99,6 +100,7 @@ class PreCommitInstallerTests(unittest.TestCase):
         paths.extend(path.relative_to(REPO_ROOT).as_posix()
                      for path in specialists.specialist_files)
         homes = modules["validate_capability_homes"]
+        self.capability_homes = homes
         rows = homes["runtime_rows"](REPO_ROOT)
         adapters, issues = homes["load_adapters"](REPO_ROOT, rows)
         if issues:
@@ -107,6 +109,15 @@ class PreCommitInstallerTests(unittest.TestCase):
         for policy in specialists.policy_rows("adapter_template"):
             if policy[3] == "main_yaml_registration":
                 paths.append(f"model-lanes/{policy[1]}/main.yaml")
+
+        # Installed-skill discovery also reads repository SKILL.md manifests.
+        # Preserve their tracked paths so the real validator sees the same
+        # lane-local evidence, without borrowing skills from the host home.
+        skill_manifests = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "ls-files", "-z", "--", ":(glob)**/SKILL.md"],
+            capture_output=True, check=True, env=self.env,
+        ).stdout.split(b"\0")
+        paths.extend(os.fsdecode(path) for path in skill_manifests if path)
 
         # The parity baseline is a Git object, not a repository file. Borrow the
         # source object store read-only instead of inventing a fixture baseline.
@@ -159,6 +170,14 @@ class PreCommitInstallerTests(unittest.TestCase):
             text=True,
             env=env,
         )
+
+    def test_fixture_preserves_repository_installed_skill_discovery(self) -> None:
+        # Host-installed skills must not hide missing repository fixture inputs.
+        with mock.patch.object(Path, "home", return_value=Path(self.temporary.name) / "empty-home"):
+            discover = self.capability_homes["actual_skill_names"]
+            for lane in self.capability_homes["LANES"]:
+                with self.subTest(lane=lane):
+                    self.assertEqual(discover(self.root, lane), discover(REPO_ROOT, lane))
 
     def test_hostile_tracked_hook_cannot_replace_installed_guard(self) -> None:
         self._git("config", "core.hooksPath", ".githooks")

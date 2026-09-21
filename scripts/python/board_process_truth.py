@@ -354,6 +354,11 @@ def _terminal_evidence(context):
     try:
         import worktree_isolation as wti
 
+        # External cancellation uses the sealed WORK binding; the shell's
+        # SQUAD_BASE_BRANCH remains only the legacy configuration-repo default.
+        if "work_repo_root" in authority or "work_base_branch" in authority:
+            _repo, base_branch, _external = wti.dispatch_work_repository(authority)
+            return asdict(wti.preserve_terminal_evidence(authority, base_branch=base_branch))
         return asdict(wti.preserve_terminal_evidence(authority))
     except Exception as exc:  # noqa: BLE001 - receipt publication must survive salvage
         reason = " ".join(str(exc).split())[:600]

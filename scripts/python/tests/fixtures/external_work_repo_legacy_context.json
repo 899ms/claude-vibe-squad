@@ -1,0 +1,115 @@
+{
+  "authority": {
+    "action_scope": [
+      "repo-read",
+      "worktree-write",
+      "role-mcp"
+    ],
+    "active_board_tasks": [],
+    "attempt_id": "d-11111111111111111111111111111111",
+    "auth_class": "subscription",
+    "author_family": "openai",
+    "budgets": {
+      "timeout_seconds": 2700
+    },
+    "canonical_role_path": "__SQUAD_ROOT__/departments/coding/specialists/codex-canary.md",
+    "canonical_role_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "capability_surface_sha256": "d0acb703aa741ff41c1f19cdee06fde12950de83813a05819b5035ecad4eaf8d",
+    "created_at": 1789867000,
+    "depends_on": [],
+    "evidence_outputs": [],
+    "executable": "/bin/sh",
+    "executable_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "execution_kind": "lane",
+    "expected_outbox_path": "departments/coding/outbox/TASK-2026-07-23-9985-codex-response.md",
+    "expected_result_path": "_state/canary/result.md",
+    "expires_at": 1789867600,
+    "generation": 1,
+    "lane": "codex",
+    "lane_args": [
+      "--json",
+      "--ephemeral",
+      "--skip-git-repo-check",
+      "--sandbox",
+      "workspace-write",
+      "--model",
+      "codex-test-model",
+      "-c",
+      "model_reasoning_effort=\"high\""
+    ],
+    "lane_overlay_path": "__SQUAD_ROOT__/model-lanes/gpt-codex/.codex/agents/codex-canary.toml",
+    "lane_overlay_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "lane_policy_row_sha256": "8ca10fa6d58f46f242ba246bf365f120308371f862e74ad03c46ac6a6bd24c73",
+    "memory_context": {
+      "aperture": "default",
+      "attempt_id": "d-11111111111111111111111111111111",
+      "engagement_start": "2026-09-20T01:16:40Z",
+      "focus": null,
+      "generation": 1,
+      "mode": "project",
+      "schema": "chrono-vault-context/v1",
+      "task_id": "TASK-2026-07-23-9985-codex"
+    },
+    "mode_profile": "project",
+    "network_scope": [
+      "openai-subscription",
+      "role-mcp"
+    ],
+    "nonce": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "operator_gates": [
+      "cleanup",
+      "credential_change",
+      "delete",
+      "live_outreach",
+      "malware_detonation",
+      "offensive_execution",
+      "paid_media",
+      "production_mutation",
+      "public_release"
+    ],
+    "packet_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "plan_sha256": "b2800fed49da5b37aeff1b1023156ef520b602de312a505b96adc9ee859bd654",
+    "pool_root": "__SQUAD_ROOT__/_state/board-worktrees",
+    "profile_bundle_sha256": "95438e2cc6b06ab3f12622ad0a0f3e0a6654e6cf3a7b35f3908b3487f883f376",
+    "read_scope": [
+      "departments/coding/inbox/TASK-2026-07-23-9985-codex.md",
+      "departments/coding/specialists/codex-canary.md",
+      "model-lanes/gpt-codex/.codex/agents/codex-canary.toml"
+    ],
+    "reconciliation_echo": {
+      "delivery_attempt_id": "d-11111111111111111111111111111111",
+      "delivery_generation": "1"
+    },
+    "repo_root": "__SQUAD_ROOT__",
+    "required_phase_ids": [
+      "S0",
+      "S1",
+      "S2",
+      "S3",
+      "S4",
+      "S5",
+      "S6",
+      "S7"
+    ],
+    "resources": [],
+    "run_id": "RUN-TEST",
+    "scheduler_capacities": {},
+    "scheduler_concurrency": 1,
+    "scheduler_settled": {},
+    "schema": "go-live-authority/v1",
+    "selected_model_sha256": "365c112885e9a9fa25b502a11e192b289f7d836f9c16e2184cb8e293af9fc2aa",
+    "specialist": "codex-canary",
+    "task_id": "TASK-2026-07-23-9985-codex",
+    "verification_contract_sha256": "ba02c91d828c0726e408d504881252d2ec5bb938b64516fde6bd8ae17bda3cdc",
+    "verification_kinds": [
+      "project_tests",
+      "recipient_contract"
+    ],
+    "workload_class": "repo-build-test",
+    "write_paths": [
+      "_state/canary"
+    ]
+  },
+  "schema": "go-live-trusted-context/v1",
+  "task_prompt": "Execute the exact task packet below as a fresh isolated specialist CLI. Do not claim or redispatch it; this launch is already bound to the registry attempt d-11111111111111111111111111111111, generation 1. Write the declared return artifact and response envelope inside this worktree. The supervisor validates and promotes the artifact first and the envelope last.\n\nDurable memory is BEST-EFFORT telemetry. Call each permitted tool once -- one recall, one record, one usage outcome per note you consulted. Then stop: never search the repo for schemas, and never retry. A memory error is never a task gate: note it briefly in the artifact and continue. The server aperture overrides any generic memory-policy wording in the packet.\n- Recall prior context ONCE: `recall(query=\"<task-specific terms>\", limit=5)`. Pass no filters; the vault enforces this engagement's aperture.\n- Write the return artifact and completion envelope FIRST. Only afterward, record the outcome once with: `record(note_type=\"learning\", fields={\"title\":\"<one-line outcome>\",\"body\":\"<two or three short sentences referencing TASK-2026-07-23-9985-codex>\",\"target\":\"<component or target>\",\"attack_class\":\"none\"})`. The server binds source_task, candidate status, sensitivity floor, and focused target; do not add or override them. Do not call set_status.\n- Then, for each recalled note that informed the work, record the outcome with `record_usage(recall_id=\"<the recall_id recall returned>\", note_id=\"mem-\u2026\", outcome=\"used\"|\"not_useful\"|\"incorrect\")`. This is expected, not optional, for notes you actually consulted -- the unhelpful ones especially, since nothing else reports them. It is still telemetry: a failure is noted in the artifact and never gates the task.\n\n## Delivery contract \u2014 four ways good work gets discarded\n\n1. **`_state/canary/result.md` must contain your real findings when you exit.** Write it as a plain file early and keep updating it as you work \u2014 not a symlink, not a directory, not left to the end. The early write is insurance against being killed mid-flight; it is not the deliverable. An artifact still holding a placeholder, an outline, or \"in progress\" text when you exit is a FAILED task, discarded exactly as a missing one is. A lane whose artifact is missing at completion is discarded whole, however good the fix was.\n2. **Write only inside your write scope**: `_state/canary`. Integration refuses a commit touching anything else and discards the entire attempt \u2014 it does not partially apply. If the task genuinely needs another path, stop and report it: a scope request costs one turn, a scope violation costs the lane.\n3. **Your envelope is a SECOND file here: also write `departments/coding/outbox/TASK-2026-07-23-9985-codex-response.md`.** In this dispatch shape `return_artifact` and the response envelope are different paths, and the envelope is deliberately absent from the write scope in item 2 \u2014 writing it is **not** a scope violation, because the controller excludes it from integration entirely. A completion carrying a perfect artifact and no envelope is discarded as `blocked`, with the work already paid for.\n4. **If you are running long, land what is complete and write the artifact anyway.** A truthful partial naming what remains is a useful result; being killed mid-flight with no artifact is not.\n\n## Exact task packet\n\n---\nid: TASK-2026-07-23-9985-codex\nto_model: gpt-codex\nspecialist: codex-canary\nsource_namespace: coding\nmode: project\nrun_id: RUN-TEST\nwrite_scope: [_state/canary/]\nreturn_artifact: _state/canary/result.md\nverification_contract: {\"action_log_policy\":{\"required\":true},\"artifact_policy\":{\"bundle_hash_algorithm\":\"canonical-artifact-list-sha256/v1\",\"hashes_required\":true},\"author_family\":\"openai\",\"bounty_policy\":null,\"capability\":{\"card_sha256\":null,\"derived_state\":null,\"id\":null},\"contract_version\":\"verification-contract/v1\",\"deliverable_review_policy\":{\"anti_affinity\":\"author_family\",\"required\":true,\"subject\":\"artifact_bundle_sha256\"},\"dispatch_kind\":\"single\",\"expected_gates\":[],\"external_delivery_policy\":{\"allowed\":false},\"iteration_policy\":{\"invalidates_on\":[\"plan_sha256\",\"artifact_bundle_sha256\"],\"routes\":[\"S2\",\"S3\"]},\"memory_policy\":{\"recall\":\"required\",\"record\":\"required\"},\"mode\":\"project\",\"plan_review_policy\":{\"anti_affinity\":\"author_family\",\"required\":true,\"subject\":\"plan_sha256\"},\"required_phase_ids\":[\"S0\",\"S1\",\"S2\",\"S3\",\"S4\",\"S5\",\"S6\",\"S7\"],\"required_verification_kinds\":[\"project_tests\",\"recipient_contract\"],\"result_type\":\"normal\",\"run_id\":\"RUN-TEST\",\"task_id\":\"TASK-2026-07-23-9985-codex\"}\nverification_contract_sha256: ba02c91d828c0726e408d504881252d2ec5bb938b64516fde6bd8ae17bda3cdc\n---\n\nWrite the result.\n"
+}

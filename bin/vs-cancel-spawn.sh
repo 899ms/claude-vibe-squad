@@ -19,6 +19,8 @@ implementation_root="$(cd -- "$(dirname -- "$wrapper_path")/.." && pwd -P)" || e
 # must die; cancelling is the emergency stop for a live worker and must not be
 # blocked by a detached HEAD. worktree_isolation refuses to guess instead, which
 # surfaces a loud preservation error and keeps the work in the retained worktree.
+# External attempts carry their WORK root/base in the sealed context; the Python
+# cancel/reap path uses that pair and never this squad-only environment default.
 if [[ -z "${SQUAD_BASE_BRANCH:-}" ]]; then
     SQUAD_BASE_BRANCH="$(git -C "$VAULT_ROOT" branch --show-current 2>/dev/null || true)"
     if [[ -n "$SQUAD_BASE_BRANCH" ]]; then

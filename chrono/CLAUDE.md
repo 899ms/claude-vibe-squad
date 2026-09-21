@@ -276,6 +276,25 @@ When the operator approves work:
    The script writes the packet to the compatibility mailbox and dispatches a detached fresh `to_model` CLI (board rail) with the absolute task path. Do not override the model map without a concrete `model_override_reason`.
 8. **Memory feedback (expected, never a gate).** Routine loop closure is captured passively: when a response lands, `bin/outbox-watcher.sh` invokes `plugins/chrono-vault/autocapture.py`, which records the bounded outcome as a candidate learning note. On top of that, **recording a usage outcome is expected whenever recalled memory informed the work** — one `record_usage` call per consulted note, `used` / `not_useful` / `incorrect`. Expected is not gating: a failed or skipped memory call must not affect task settlement. Full rule, including why the unhelpful outcomes are the valuable ones: `shared/protocol.md` § Memory Apply Citations, which is its home.
 
+### External work repositories
+
+Ventures and client work live in their OWN repositories; the squad repo holds only the squad system and its
+learnings. (The decision record is the home for which decision settled this and when.) The board rail dispatches against such a repo
+with one optional packet field — `work_repo: /absolute/main-checkout` in a prepared packet, or
+`WORK_REPO=/absolute/main-checkout` through `scripts/send-task.sh`. Absent means today's squad-repo behaviour
+exactly. The value must be a git MAIN checkout (not a linked worktree) outside the squad root with an attached
+current branch; preflight and the dispatcher each refuse anything else and never guess a branch. Squad
+configuration (roles, adapters, registry, mailbox, `_state`, memory) still comes from the squad root; the work
+repo supplies the worktree, its own base branch, both ignore checks, the worker's cwd, and the integration target.
+`write_scope` is relative to the WORK repo. Skills are not projected into an external worktree, but a relative
+read-context path that is absent from the work repo falls back to the squad root, so a relative skill path still
+resolves. Prefer an absolute squad-root path anyway: it is unambiguous, and it does not depend on the fallback.
+
+Worker commits land on `board/<TASK-ID>` in the work repo. The rail never fast-forwards, checks out, or pushes
+the work repo's base branch: merging that branch is a decision made WITH the operator, and this rail never pushes
+any repository. A regression test covers the path end to end and asserts the external base branch and its remote
+tracking ref are both unchanged after a worker lands its commits.
+
 ### Bounty mode
 
 Bounty mode is markdown judgment, not machinery. It has no validator and must not grow one.

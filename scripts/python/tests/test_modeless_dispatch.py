@@ -433,6 +433,7 @@ Exercise the prepared-packet modeless path.
             packet_capture = root / "packet-capture.md"
             (root / "shared/lead-windows.sh").write_text(
                 "COMPATIBILITY_NAMESPACES=(coding security content sysmgmt research)\n"
+                "MODEL_LANES=(gpt-codex claude gemini grok kimi)\n"
                 'is_compatibility_namespace() { [[ "$1" == coding ]]; }\n',
                 encoding="utf-8",
             )

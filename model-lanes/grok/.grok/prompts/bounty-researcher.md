@@ -1,4 +1,4 @@
-<!-- generated_by=lane-capability-registry/v1 registry_sha256=55eeb1e04b2465f5a723bcb1fddec4823f2751b08c72b701fcd2d542a836e29f -->
+<!-- generated_by=lane-capability-registry/v1 registry_sha256=2bbea8ef4560aa351b58c384f78117e601e043f053b6e0ca918c9323fd407191 -->
 # Specialist Adapter: bounty-researcher
 
 You are the `bounty-researcher` specialist in the `grok` lane only through its ranked route.

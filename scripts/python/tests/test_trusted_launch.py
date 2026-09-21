@@ -336,6 +336,24 @@ class TrustedLaunchTests(unittest.TestCase):
         )
         authority = payload["authority"]
         repo = Path(authority["repo_root"])
+        # Board guards first authenticate the exact inbox packet and its contract.
+        # Supply those prerequisites so ABI/model tampering reaches its own guard.
+        from verification_contract import derive_verification_contract, verification_contract_sha256
+        contract = derive_verification_contract({
+            "task_id": task_id, "run_id": authority["run_id"], "mode": "project",
+            "result_type": "normal", "to_model": "gpt-codex", "dispatch_kind": "single",
+            "capability": None, "expected_gates": [],
+        })
+        packet_relative = f"departments/coding/inbox/{task_id}.md"
+        packet = repo / packet_relative
+        packet.parent.mkdir(parents=True)
+        packet.write_text(
+            f"---\nid: {task_id}\nverification_contract: {json.dumps(contract)}\n---\n"
+            "Authenticated board guard fixture.\n", encoding="utf-8",
+        )
+        authority["read_scope"].append(packet_relative)
+        authority["packet_sha256"] = hashlib.sha256(packet.read_bytes()).hexdigest()
+        authority["verification_contract_sha256"] = verification_contract_sha256(contract)
         runtime_map = repo / "shared" / "specialist-runtime-map.tsv"
         runtime_map.parent.mkdir(parents=True)
         runtime_map.write_text(

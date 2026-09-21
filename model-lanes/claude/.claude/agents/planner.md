@@ -4,7 +4,7 @@ description: "Plans dispatch shape, write ownership, and parallel safety. Conduc
 model: inherit
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: ac8de362ad431d3f6ee73ff317397ef3a628e6e7846040233c3771750b248e13
+capability_source_sha256: c16dad3b4285660ca0e18b0b7ac0a60fca55c745f1656f2f300e65918b773f20
 mcps: ["chrono-vault","sequential-thinking"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---

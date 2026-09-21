@@ -4,6 +4,8 @@ import csv
 import importlib.util
 import json
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -43,6 +45,35 @@ REGISTRY_SPEC.loader.exec_module(registry)
 
 
 class SpecialistCapabilitySourceTests(unittest.TestCase):
+    def test_public_prior_art_operation_promise_is_rejected(self) -> None:
+        spec = importlib.util.spec_from_file_location(
+            "public_operation_control", ROOT / "model-lanes/check_public_plugin_capabilities.py"
+        )
+        check = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(check)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            shutil.copytree(ROOT / "model-lanes", root / "model-lanes")
+            for relative in ("shared/specialist-runtime-map.tsv",
+                             "tools/export/policy/path-policy.json"):
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(ROOT / relative, path)
+            planted = "model-lanes/gpt-codex/.codex/agents/operation-control.toml"
+            (root / planted).write_text('tools = ["prior_art_check"]\n')
+            issues = check.audit(root)
+            self.assertEqual(
+                {issue["identifier"] for issue in issues if issue["path"] == planted},
+                {"chrono-dedup", "lead:chrono-dedup"},
+            )
+            result = subprocess.run(
+                [sys.executable, "-B", str(ROOT / "model-lanes/check_public_plugin_capabilities.py"),
+                 "--repo-root", str(root)], capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertTrue(any(issue["path"] == planted
+                                for issue in json.loads(result.stdout)["diagnostics"]))
+
     def test_projection_compatibility_hashes_include_current_and_explicit_prior(self) -> None:
         _entries, payload = load_source(ROOT)
         accepted = accepted_source_sha256s(ROOT, payload)
@@ -190,6 +221,26 @@ class SpecialistCapabilitySourceTests(unittest.TestCase):
             for server_id, operations in servers.items()
             if not server_id.startswith("lead:")
         }
+        if "public_projection" in payload:
+            # The public catalogue deliberately retains private operation
+            # names so S2 still detects a planted promise. Only providers
+            # withheld by the actual export policy may lack assignments.
+            sys.path.insert(0, str(ROOT / "tools/export"))
+            from path_policy import load_policy
+            policy = load_policy(ROOT / "tools/export/policy/path-policy.json")
+            declared_providers = set(servers) | {
+                ref.identifier for entry in entries.values() for ref in entry["mcps"]
+            }
+            withheld = {
+                identifier for identifier in declared_providers
+                if any(policy.classify(f"plugins/{identifier.removeprefix('lead:')}/{suffix}")
+                       != "public" for suffix in (".claude-plugin/plugin.json", "mcp_server.py"))
+            }
+            self.assertEqual(set(payload["public_projection"]["withheld_providers"]), withheld)
+            for identifier in withheld:
+                if identifier in direct_server_operations:
+                    self.assertEqual(assigned_operations[identifier], set())
+                    direct_server_operations[identifier] = set()
         self.assertEqual(assigned_operations, direct_server_operations)
 
     def test_validator_fails_closed_on_runtime_projection_drift(self) -> None:

@@ -21,6 +21,10 @@ from pathlib import Path, PurePosixPath
 import target_scan
 from path_policy import Policy, PolicyError, load_policy
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "model-lanes"))
+from project_public_capabilities import project_public_capabilities
+from check_public_plugin_capabilities import audit as audit_public_capabilities
+
 
 TRUSTED_TOOL_ROOT = Path(__file__).resolve().parents[2]
 
@@ -985,6 +989,24 @@ def project(
             ["checkout-index", "--all", "--force", f"--prefix={candidate}/"],
             environment=index_environment,
         )
+
+        # Transform only the disposable candidate, then bind those exact bytes
+        # into its index/tree. Private availability and the operation catalogue
+        # remain independent of what path policy permits us to publish.
+        try:
+            capability_paths = project_public_capabilities(candidate, policy)
+            if (candidate / "model-lanes/specialist-lane-capabilities.v1.json").is_file():
+                issues = audit_public_capabilities(candidate, policy)
+                if issues:
+                    raise ValueError(f"public capability promises remain: {issues}")
+        except (OSError, ValueError, RuntimeError) as error:
+            raise ProjectorError(f"capability projection failed: {error}") from error
+        for path in capability_paths:
+            blob = _git(root, ["hash-object", "-w", "--stdin"],
+                        input_bytes=(candidate / path).read_bytes()).decode().strip()
+            _git(root, ["update-index", "--cacheinfo", f"100644,{blob},{path}"],
+                 environment=index_environment)
+        candidate_tree = _git(root, ["write-tree"], environment=index_environment).decode().strip()
 
         # Advisory engagement-target scan, on the materialised candidate. It is
         # retained as a second signal, including positive findings, a liveness

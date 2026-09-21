@@ -698,7 +698,10 @@ if strict_context or trusted_context:
     authority = context.get("authority")
     if (
         not isinstance(authority, dict)
-        or set(authority) != authority_fields
+        or set(authority) not in (
+            authority_fields,
+            authority_fields | {"work_repo_root", "work_base_branch"},
+        )
         or authority.get("schema") != "go-live-authority/v1"
     ):
         deny("authenticated launch authority has the wrong fields")
@@ -768,6 +771,8 @@ if strict_context or trusted_context:
         "specialist": authority["specialist"],
         "lane": authority["lane"],
         "repo_root": authority["repo_root"],
+        **{key: authority[key] for key in ("work_repo_root", "work_base_branch")
+           if key in authority},
         "pool_root": authority["pool_root"],
         "canonical_role_path": authority["canonical_role_path"],
         "lane_overlay_path": authority["lane_overlay_path"],
@@ -896,6 +901,10 @@ generation = context["generation"]
 specialist = str(context["specialist"])
 lane = str(context["lane"])
 repo_path = Path(str(context["repo_root"]))
+try:
+    work_repo_path, work_base_branch, external_work_repo = wti.dispatch_work_repository(authority)
+except wti.WorktreeIsolationError as exc:
+    deny(f"work_repo binding failed: {exc}")
 pool_root = Path(str(context["pool_root"]))
 executable = Path(str(context["executable"]))
 
@@ -2251,19 +2260,52 @@ if execution_kind == "lane":
         deny("capability surface does not match launch authority")
 
 
-def canonical_logical_path(value):
+def canonical_logical_path(value, *, config_read=False):
     if not isinstance(value, str) or not value or "\x00" in value:
         deny("scheduler authority contains an invalid logical path")
+    logical_root = repo_path if config_read else work_repo_path
     candidate = Path(value)
     if not candidate.is_absolute():
-        candidate = repo_path / candidate
+        candidate = logical_root / candidate
     normalized = Path(os.path.normpath(candidate))
     try:
-        if os.path.commonpath((str(normalized), str(repo_path))) != str(repo_path):
+        if os.path.commonpath((str(normalized), str(logical_root))) != str(logical_root):
             deny("scheduler authority path escapes the repository")
     except ValueError:
         deny("scheduler authority path is not comparable to the repository")
     return str(normalized)
+
+
+def is_config_read(value):
+    if not external_work_repo:
+        return False
+    config_paths = {
+        Path(str(authority[key])).relative_to(repo_path).as_posix()
+        for key in ("canonical_role_path", "lane_overlay_path")
+    }
+    config_paths.add(f"departments/coding/inbox/{task_id}.md")
+    candidate = Path(value)
+    if candidate.is_absolute():
+        if candidate.is_relative_to(repo_path):
+            if not candidate.exists():
+                deny(f"external read_scope squad path does not exist: {value}")
+            return True
+        candidate = Path(canonical_logical_path(value)).relative_to(work_repo_path)
+    if candidate.as_posix() in config_paths:
+        return True
+    # Declared work outputs can be created later, including _state paths. Keep
+    # their reads and writes in the same worktree instead of reading squad state.
+    work_path = work_repo_path / candidate
+    if any(work_path.is_relative_to(Path(canonical_logical_path(scope)))
+           for scope in authority["write_paths"]):
+        return False
+    if work_path.exists():
+        return False
+    # A relative read_context may name squad documentation or skills. Prefer an
+    # existing work path; fall back to squad only for relative, read-only inputs.
+    if not Path(value).is_absolute() and (repo_path / candidate).exists():
+        return True
+    deny(f"external read_scope path does not exist in its repository: {value}")
 
 write_paths = authority["write_paths"]
 read_paths = authority["read_scope"]
@@ -2370,10 +2412,10 @@ def scheduler_resources(values):
 current_task = board_router.BoardTask(
     task_id=task_id,
     write_paths=tuple(canonical_logical_path(item) for item in write_paths),
-    read_paths=tuple(canonical_logical_path(item) for item in read_paths),
+    read_paths=tuple(canonical_logical_path(item, config_read=is_config_read(item)) for item in read_paths),
     depends_on=scheduler_dependencies(authority["depends_on"]),
     resources=scheduler_resources(authority["resources"]),
-    worktree_root=str(repo_path),
+    worktree_root=str(work_repo_path),
     metadata_complete=True,
     priority=0,
 )
@@ -2453,10 +2495,20 @@ if task_id not in schedule_result.run_now:
 scheduler_snapshot_sha256 = schedule_result.reservation_snapshot_sha256
 
 try:
-    pool = wti.WorktreePool(repo_path, pool_root, base_branch=os.environ.get("SQUAD_BASE_BRANCH", "v2"))
+    # External worktrees use squad-only read inputs without copying configuration.
+    pool = wti.WorktreePool(work_repo_path, pool_root, base_branch=work_base_branch,
+                           external_work_repo=external_work_repo)
     handle = pool.provision(task_id, attempt_id)
 except wti.WorktreeIsolationError as exc:
     deny(f"worktree provisioning failed: {exc}")
+
+lane_config_root = repo_path if external_work_repo else handle.worktree_root
+worker_cwd = (
+    handle.worktree_root / GEMINI_LANE_CWD_RELATIVE
+    if execution_kind == "lane" and lane == "gemini" and not external_work_repo
+    else handle.worktree_root
+)
+# dispatch_context_builder owns the repository-roots preamble in task_prompt.
 
 
 # --- V113-18: a lane's completed work must not need Chrono doing git surgery ---
@@ -2713,7 +2765,7 @@ def recover_committed_work_for_block():
                 authority["expected_outbox_path"],
             ),
             authorized_delete_paths=globals().get("authorized_delete_paths") or (),
-            target_branch=os.environ.get("SQUAD_BASE_BRANCH", "v2"),
+            target_branch=worktree_handle.base_branch,
         )
     except Exception as exc:  # best-effort: a block receipt is never lost to this
         detail = " ".join(str(exc).split())[:400]
@@ -3053,7 +3105,7 @@ request_payload = {
     "task_id": task_id,
     "attempt_id": attempt_id,
     "generation": generation,
-    "branch": os.environ.get("SQUAD_BASE_BRANCH", "v2"),
+    "branch": handle.base_branch,
     "task_root": str(handle.worktree_root),
     "write_paths": [str(handle.worktree_root)],
     "profile_bundle_sha256": str(context["profile_bundle_sha256"]),
@@ -3062,7 +3114,11 @@ request_file = handle.worktree_root / ".trusted-launch-request.json"
 request_file.write_text(json.dumps(request_payload, sort_keys=True), encoding="utf-8")
 
 try:
-    request = _load_task_request(request_file)
+    request = _load_task_request(
+        request_file,
+        **({"work_repo_root": work_repo_path, "work_base_branch": work_base_branch}
+           if external_work_repo else {}),
+    )
 except HygieneError as exc:
     block_after_provision(f"task request validation failed: {exc}")
 
@@ -3102,7 +3158,7 @@ try:
         broker_token = os.urandom(32).hex()
         try:
             relay = chrono_vault_relay_server(
-                repo_root=handle.worktree_root,
+                repo_root=repo_path if external_work_repo else handle.worktree_root,
                 broker_port=prepared.broker_listener.getsockname()[1],
                 broker_token=broker_token,
                 task_id=task_id,
@@ -3124,7 +3180,7 @@ try:
                     )
                 capability_plan = broker_chrono_vault_plan(
                     capability_plan,
-                    repo_root=handle.worktree_root,
+                    repo_root=repo_path if external_work_repo else handle.worktree_root,
                     broker_port=prepared.broker_listener.getsockname()[1],
                     broker_token=broker_token,
                     task_id=task_id,
@@ -3218,7 +3274,7 @@ try:
         capability_lane_args.extend(
             (
                 "--agent",
-                str(handle.worktree_root / "model-lanes" / "grok" / "main.yaml"),
+                str(lane_config_root / "model-lanes" / "grok" / "main.yaml"),
             )
         )
     if execution_kind == "lane" and lane == "kimi":
@@ -3231,13 +3287,16 @@ try:
         capability_lane_args.extend(
             (
                 "--agent-file",
-                str(handle.worktree_root / "model-lanes" / "kimi" / "main.yaml"),
+                str(lane_config_root / "model-lanes" / "kimi" / "main.yaml"),
                 "--add-dir",
                 str(handle.worktree_root),
                 "--skills-dir",
                 str(handle.worktree_root / ".agents" / "skills"),
             )
         )
+        if external_work_repo:
+            # No skill projection or implicit squad skill discovery for WORK.
+            capability_lane_args = capability_lane_args[:-2]
     if execution_kind == "lane" and lane == "codex":
         try:
             for git_write_dir in wti.linked_worktree_commit_write_dirs(handle):
@@ -3280,7 +3339,7 @@ try:
     def worker_scope_path(value):
         raw = Path(value)
         if raw.is_absolute():
-            relative = raw.relative_to(repo_path)
+            relative = raw.relative_to(work_repo_path)
         else:
             relative = raw
         candidate = Path(os.path.normpath(handle.worktree_root / relative))
@@ -3289,7 +3348,10 @@ try:
         return str(candidate)
 
     worker_write_scope = tuple(worker_scope_path(item) for item in authority["write_paths"])
-    worker_read_scope = tuple(worker_scope_path(item) for item in authority["read_scope"])
+    worker_read_scope = tuple(
+        str(repo_path / item) if is_config_read(item) else worker_scope_path(item)
+        for item in authority["read_scope"]
+    )
     expected_result_path = worker_scope_path(authority["expected_result_path"])
     expected_outbox_path = worker_scope_path(authority["expected_outbox_path"])
     if not worker_write_scope:
@@ -3364,9 +3426,7 @@ try:
     def bounded_real_launcher(canary_runner, command, **kwargs):
         kwargs["limits"] = ResourceLimits(process_count=4096)
         if execution_kind == "lane" and lane == "gemini":
-            kwargs["cwd"] = str(
-                handle.worktree_root / GEMINI_LANE_CWD_RELATIVE
-            )
+            kwargs["cwd"] = str(worker_cwd)
         return launch_if_canary_passes(canary_runner, command, **kwargs)
 
     def trusted_real_launcher(canary_runner, command, **kwargs):
@@ -3375,11 +3435,7 @@ try:
             raise ValueError("trusted launch did not consume its retained passing canary")
         timeout = float(kwargs.get("timeout", 180))
         deadline = time.monotonic() + timeout
-        cwd = str(
-            handle.worktree_root / GEMINI_LANE_CWD_RELATIVE
-            if execution_kind == "lane" and lane == "gemini"
-            else handle.worktree_root
-        )
+        cwd = str(worker_cwd)
         # Stream the child's stdout to the board transcript fd as each line arrives so
         # the dashboard can tail the .log in real time (subprocess.run buffered until
         # exit -> 0 bytes visible mid-run). Drain both pipes on threads to avoid a
@@ -3571,7 +3627,7 @@ try:
         # resolved absolute paths so the worker never has to infer a "../../"
         # prefix; reclaim_lane_cwd_outputs() repairs it after the fact when the
         # worker uses the packet-relative form anyway.
-        lane_cwd_path = handle.worktree_root / GEMINI_LANE_CWD_RELATIVE
+        lane_cwd_path = worker_cwd
         path_contract = (
             "\n\n## Working directory contract (read before writing anything)\n\n"
             f"- Your process working directory is `{lane_cwd_path}`.\n"
@@ -3674,16 +3730,19 @@ try:
             + "\n```\n"
             + lead_contract
         )
-        role_path_args = tuple(capability_lane_args[-6:])
-        role_capability_args = tuple(capability_lane_args[:-6])
+        role_path_count = 4 if external_work_repo else 6
+        role_path_args = tuple(capability_lane_args[-role_path_count:])
+        role_capability_args = tuple(capability_lane_args[:-role_path_count])
         expected_role_path_args = (
             "--agent-file",
-            str(handle.worktree_root / "model-lanes" / "kimi" / "main.yaml"),
+            str(lane_config_root / "model-lanes" / "kimi" / "main.yaml"),
             "--add-dir",
             str(handle.worktree_root),
             "--skills-dir",
             str(handle.worktree_root / ".agents" / "skills"),
         )
+        if external_work_repo:
+            expected_role_path_args = expected_role_path_args[:-2]
         if role_path_args != expected_role_path_args:
             raise ValueError("Kimi agent-file arguments changed after provisioning")
         proven_args = (
@@ -3703,6 +3762,15 @@ try:
             "-p",
             concise_prompt,
         )
+        if external_work_repo:
+            combined_prompt = agent_system_context + "\n\n" + concise_prompt
+            if len(combined_prompt.encode("utf-8")) > _prompt_limit:
+                raise ValueError("Kimi external role/task prompt exceeds prompt bound")
+            return selected_launcher(
+                canary_runner,
+                (*kimi_command[:-1], combined_prompt),
+                **kwargs,
+            )
         # main.yaml loads KIMI.md as its system prompt. Temporarily bind the
         # authenticated specialist role there for this child, then restore the
         # tracked worktree byte-for-byte before output integration.
@@ -3728,7 +3796,7 @@ try:
         role_capability_args = tuple(capability_lane_args[:-2])
         expected_role_path_args = (
             "--agent",
-            str(handle.worktree_root / "model-lanes" / "grok" / "main.yaml"),
+            str(lane_config_root / "model-lanes" / "grok" / "main.yaml"),
         )
         if role_path_args != expected_role_path_args:
             raise ValueError("Grok agent arguments changed after provisioning")
@@ -3775,6 +3843,15 @@ try:
             "-p",
             concise_prompt,
         )
+        if external_work_repo:
+            combined_prompt = agent_system_context + "\n\n" + concise_prompt
+            if len(combined_prompt.encode("utf-8")) > _prompt_limit:
+                raise ValueError("Grok external role/task prompt exceeds prompt bound")
+            return selected_launcher(
+                canary_runner,
+                (*grok_command[:-1], combined_prompt),
+                **kwargs,
+            )
         grok_prompt_path = handle.worktree_root / "model-lanes" / "grok" / "GROK.md"
         specialist_suffix = (
             "\n\n## Board-dispatched specialist context\n\n"
@@ -3802,7 +3879,7 @@ try:
         # Gemini runs with cwd=<worktree>/model-lanes/gemini while packet paths
         # are worktree-root relative. Reclaim only absent declared outputs before
         # applying the same validator used by every successful lane return.
-        if execution_kind == "lane" and lane == "gemini":
+        if execution_kind == "lane" and lane == "gemini" and not external_work_repo:
             reclaimed_outputs = reclaim_lane_cwd_outputs(
                 handle.worktree_root,
                 GEMINI_LANE_CWD_RELATIVE,
@@ -4005,7 +4082,7 @@ try:
                 # does not carry an operator-approved deletion manifest, which
                 # keeps the categorical refusal as the default.
                 authorized_delete_paths=authorized_delete_paths,
-                target_branch=os.environ.get("SQUAD_BASE_BRANCH", "v2"),
+                target_branch=handle.base_branch,
             )
         except wti.WorktreeIsolationError as exc:
             block_after_provision(

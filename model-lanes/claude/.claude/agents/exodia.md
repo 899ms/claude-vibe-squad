@@ -3,10 +3,10 @@ name: exodia
 description: "Thin Claude adapter for exodia; canonical brief is authoritative."
 model: inherit
 generated_by: lane-capability-registry/v1
-capability_registry_sha256: d3388ec330d2307e11cf0845c48cc8bc185780c3c1cb6065f06ce13b34e4430a
+capability_registry_sha256: 2bbea8ef4560aa351b58c384f78117e601e043f053b6e0ca918c9323fd407191
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source: model-lanes/specialist-lane-capabilities.v1.json
-capability_source_sha256: ac8de362ad431d3f6ee73ff317397ef3a628e6e7846040233c3771750b248e13
+capability_source_sha256: c16dad3b4285660ca0e18b0b7ac0a60fca55c745f1656f2f300e65918b773f20
 mcps: ["chrono-vault"]
 # END SPECIALIST CAPABILITY PROJECTION
 ---

@@ -5,7 +5,7 @@ model_reasoning_effort = "high"
 sandbox_mode = "workspace-write"
 # BEGIN SPECIALIST CAPABILITY PROJECTION
 capability_source = "model-lanes/specialist-lane-capabilities.v1.json"
-capability_source_sha256 = "b5693bab7ccdccf6ab1c1e1018fb93e3153a9fd1883e97f1f31c4fa4aee26e53"
+capability_source_sha256 = "c16dad3b4285660ca0e18b0b7ac0a60fca55c745f1656f2f300e65918b773f20"
 # END SPECIALIST CAPABILITY PROJECTION
 developer_instructions = """
 You are the `smokey` specialist in the `gpt-codex` lane.

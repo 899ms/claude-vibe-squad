@@ -13,7 +13,7 @@ Task 2.1's scheduler, it composes both.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import fcntl
 import os
 from pathlib import Path, PurePosixPath
@@ -332,6 +332,8 @@ class WorktreeHandle:
     worktree_root: Path
     repo_root: Path
     base_commit: str = ""
+    base_branch: str = ""
+    external_work_repo: bool = False
 
 
 @dataclass(frozen=True)
@@ -354,6 +356,7 @@ class WorktreeIntegrationReceipt:
     # trail carries both what disappeared and under which authorization.
     deleted_paths: tuple[str, ...] = ()
     authorized_delete_paths: tuple[str, ...] = ()
+    target_branch: str = ""
 
 
 EVIDENCE_SELECTION_POLICY = (
@@ -374,6 +377,12 @@ class AttemptEvidenceReceipt:
     A bounded/non-regular untracked file that cannot be committed instead keeps
     the attempt worktree named here and forces ``worktree_retained_required``.
     Path arrays are bounded samples; their adjacent counts are authoritative.
+
+    ``explicit_output_paths`` names explicit snapshot inputs for squad attempts.
+    For external attempts, mailbox outputs are excluded from Git: this field
+    instead names unpromoted outputs retained at ``worktree_location`` and forces
+    ``worktree_retained_required``. It is not a list of committed paths; use
+    ``preserved_paths`` with ``evidence_commit`` to inspect the Git snapshot.
     """
 
     status: str
@@ -412,13 +421,17 @@ class AttemptEvidenceReceipt:
 class WorktreePool:
     """Provisions and releases one git worktree per concurrent task attempt."""
 
-    def __init__(self, repo_root: Path, pool_root: Path, *, base_branch: str = "v2") -> None:
+    def __init__(self, repo_root: Path, pool_root: Path, *, base_branch: str | None = None,
+                 external_work_repo: bool = False) -> None:
         self._repo_root = _canonical_existing(Path(repo_root), "repo root")
+        if external_work_repo and not base_branch:
+            raise WorktreeIsolationError("work_repo requires a bound work_base_branch")
         self._pool_root = Path(pool_root)
         if not self._pool_root.is_absolute():
             raise WorktreeIsolationError(f"pool root must be absolute: {pool_root}")
         self._pool_root.mkdir(parents=True, exist_ok=True)
-        self._base_branch = base_branch
+        self._base_branch = _resolve_base_branch(self._repo_root, base_branch)
+        self._external_work_repo = external_work_repo
         self._handles: dict[tuple[str, str], WorktreeHandle] = {}
         # The common repository-local exclude is visible from every registered
         # linked worktree, including attempts that predate this pool instance.
@@ -452,7 +465,11 @@ class WorktreePool:
 
         self._reject_target_inside_shared_git(worktree_root)
 
-        base_commit = _resolve_commit(self._repo_root, self._base_branch)
+        base_ref = (
+            f"refs/heads/{self._base_branch}"
+            if self._external_work_repo else self._base_branch
+        )
+        base_commit = _resolve_commit(self._repo_root, base_ref)
         # Reassert immediately before creation in case an operator intentionally
         # edited the repository-local excludes after this pool was constructed.
         _ensure_worker_credential_exclusion(self._repo_root)
@@ -484,6 +501,8 @@ class WorktreePool:
             worktree_root=canonical_root,
             repo_root=self._repo_root,
             base_commit=base_commit,
+            base_branch=self._base_branch,
+            external_work_repo=self._external_work_repo,
         )
         self._handles[key] = handle
         return handle
@@ -589,10 +608,9 @@ class WorktreePool:
         janitor, which a fresh clone may never run.
 
         Two safety properties, both deliberate:
-        * `git branch -d` (never `-D`) refuses unless the branch is merged, so
-          the "is this safe to delete" judgement stays with git rather than
-          being reimplemented here. An unmerged branch is someone's only copy of
-          recovery evidence and MUST survive.
+        * Squad cleanup uses `git branch -d` (never `-D`). External cleanup
+          checks ancestry against the task branch or bound base and atomically
+          deletes only the checked OID. Unmerged recovery evidence MUST survive.
         * Only the exact `worktree/<task>/<attempt>` ref this pool created is
           ever passed, so no user branch is reachable from here.
 
@@ -601,6 +619,24 @@ class WorktreePool:
         """
         branch = stored.branch
         if not branch.startswith("worktree/"):
+            return
+        if stored.external_work_repo:
+            # External work lands on board/<task>, never the checked-out base.
+            # Pin the attempt OID before checking ancestry, then compare-and-delete
+            # only that OID. Preserve unmerged recovery evidence and raced updates.
+            ref = f"refs/heads/{branch}"
+            resolved = _run_git(["rev-parse", "--verify", ref], cwd=self._repo_root)
+            old_oid = resolved.stdout.strip()
+            if resolved.returncode != 0 or not _OBJECT_ID_RE.fullmatch(old_oid):
+                return
+            for target in (f"board/{stored.task_id}", stored.base_branch):
+                merged = _run_git(
+                    ["merge-base", "--is-ancestor", old_oid, f"refs/heads/{target}"],
+                    cwd=self._repo_root,
+                )
+                if merged.returncode == 0:
+                    _run_git(["update-ref", "--no-deref", "-d", ref, old_oid], cwd=self._repo_root)
+                    return
             return
         _run_git(["branch", "-d", branch], cwd=self._repo_root)
 
@@ -650,6 +686,37 @@ def _resolve_base_branch(repo_root: Path, explicit: str | None = None) -> str:
             "non-repo); refusing to guess"
         )
     return name
+
+
+def dispatch_work_repository(authority: Mapping[str, object]) -> tuple[Path, str, bool]:
+    """Resolve the controller-bound work root/base without consulting worker state.
+
+    Only legacy squad dispatches use SQUAD_BASE_BRANCH. The optional external
+    pair is all-or-nothing and must already be authenticated by the caller.
+    """
+    keys = {"work_repo_root", "work_base_branch"}
+    if not keys.intersection(authority):
+        root = _canonical_existing(Path(str(authority["repo_root"])), "repo root")
+        return root, _resolve_base_branch(root), False
+    if not keys.issubset(authority):
+        raise WorktreeIsolationError("work_repo requires work_repo_root and work_base_branch together")
+    root_value, branch = authority["work_repo_root"], authority["work_base_branch"]
+    if not isinstance(root_value, str) or not isinstance(branch, str) or not branch.strip():
+        raise WorktreeIsolationError("work_repo root/base binding is invalid")
+    root = _canonical_existing(Path(root_value), "work_repo root")
+    config = Path(str(authority["repo_root"])).resolve(strict=True)
+    if root == config or config in root.parents:
+        raise WorktreeIsolationError("work_repo must not be inside the squad root")
+    top = _run_git(["rev-parse", "--show-toplevel"], cwd=root)
+    git_dir = _run_git(["rev-parse", "--absolute-git-dir"], cwd=root)
+    if (top.returncode or Path(top.stdout.strip()).resolve() != root
+            or git_dir.returncode or Path(git_dir.stdout.strip()).resolve() != git_common_dir(root)):
+        raise WorktreeIsolationError("work_repo must be a Git MAIN checkout")
+    valid = _run_git(["check-ref-format", f"refs/heads/{branch}"], cwd=root)
+    if valid.returncode:
+        raise WorktreeIsolationError("work_repo work_base_branch is invalid")
+    _resolve_commit(root, f"refs/heads/{branch}")
+    return root, branch, True
 
 
 # Scopes are PREFIX paths, matched by `_is_contained` on path components. They
@@ -1526,7 +1593,7 @@ def preserve_terminal_evidence(
         raise WorktreeIsolationError("terminal evidence authority is not a mapping")
     task_id = authority.get("task_id")
     attempt_id = authority.get("attempt_id")
-    repo_value = authority.get("repo_root")
+    repo_value = authority.get("work_repo_root", authority.get("repo_root"))
     pool_value = authority.get("pool_root")
     write_scope = authority.get("write_paths")
     if (
@@ -1551,7 +1618,12 @@ def preserve_terminal_evidence(
     if canonical_worktree.parent != pool_root or canonical_worktree.name != attempt_id:
         raise WorktreeIsolationError("terminal evidence worktree identity is invalid")
     branch = _branch_name(task_id, attempt_id)
-    selected_base_branch = _resolve_base_branch(repo_root, base_branch)
+    if "work_repo_root" in authority or "work_base_branch" in authority:
+        repo_root, selected_base_branch, _ = dispatch_work_repository(authority)
+        if base_branch is not None and base_branch != selected_base_branch:
+            raise WorktreeIsolationError("work_repo preservation base differs from work_base_branch")
+    else:
+        selected_base_branch = _resolve_base_branch(repo_root, base_branch)
     target_commit = _resolve_commit(repo_root, f"refs/heads/{selected_base_branch}")
     worker_head = _resolve_commit(canonical_worktree, "HEAD")
     merge_base = _run_git(
@@ -1581,14 +1653,32 @@ def preserve_terminal_evidence(
             if isinstance((value := authority.get(key)), str) and value
         )
     )
-    return _preserve_attempt_evidence(
+    external = "work_repo_root" in authority
+    receipt = _preserve_attempt_evidence(
         handle,
         write_scope,
-        explicit_output_paths=explicit_outputs,
+        explicit_output_paths=() if external else explicit_outputs,
+        exclude_paths=explicit_outputs if external else (),
         maximum_untracked_files=maximum_untracked_files,
         maximum_untracked_file_bytes=maximum_untracked_file_bytes,
         maximum_untracked_total_bytes=maximum_untracked_total_bytes,
     )
+    if external:
+        # Mailbox bytes must never become commits in the work repository, even
+        # during cancel/reap. Retain unpromoted outputs in the attempt worktree.
+        config_root = Path(str(authority["repo_root"]))
+        retained_outputs = tuple(
+            value for value in explicit_outputs
+            if os.path.lexists(canonical_worktree / value)
+            and not _same_regular_file(canonical_worktree / value, config_root / value)
+        )
+        if retained_outputs:
+            receipt = replace(
+                receipt,
+                explicit_output_paths=retained_outputs,
+                worktree_retained_required=True,
+            )
+    return receipt
 
 
 def commit_worker_residue(
@@ -1705,7 +1795,7 @@ def integrate_worktree_commits(
     *,
     exclude_paths: Sequence[str] = (),
     authorized_delete_paths: Sequence[str] = (),
-    target_branch: str = "v2",
+    target_branch: str | None = None,
 ) -> WorktreeIntegrationReceipt:
     """Atomically integrate only committed, declared-scope worker changes.
 
@@ -1727,11 +1817,20 @@ def integrate_worktree_commits(
     """
 
     _validate_task_attempt(handle.task_id, handle.attempt_id)
-    if target_branch != os.environ.get("SQUAD_BASE_BRANCH", "v2"):
-        raise WorktreeIsolationError(
-            f"board integration target must be {os.environ.get('SQUAD_BASE_BRANCH', 'v2')}"
-        )
     repo_root = _canonical_existing(handle.repo_root, "repo root")
+    expected_branch = (
+        handle.base_branch if handle.external_work_repo
+        else _resolve_base_branch(repo_root)
+    )
+    if not expected_branch:
+        raise WorktreeIsolationError("work_repo handle has no bound base branch")
+    if target_branch is None:
+        target_branch = expected_branch
+    if target_branch != expected_branch:
+        raise WorktreeIsolationError(
+            f"board integration target must be {expected_branch}"
+        )
+    landing_branch = f"board/{handle.task_id}" if handle.external_work_repo else target_branch
     worktree_root = worktree_write_scope_paths(handle.worktree_root, repo_root)[0]
     if isinstance(write_scope, (str, bytes)) or not isinstance(write_scope, Sequence):
         raise WorktreeIsolationError("integration write scope must be a sequence of paths")
@@ -1935,6 +2034,7 @@ def integrate_worktree_commits(
                 uncommitted_excluded_paths=uncommitted_excluded_paths,
                 deleted_paths=(),
                 authorized_delete_paths=authorized_delete_strings,
+                target_branch=target_branch,
             )
 
         literal_integrated = [f":(literal){path}" for path in integrated_paths]
@@ -2033,11 +2133,20 @@ def integrate_worktree_commits(
             raise WorktreeIsolationError(
                 "target branch advanced concurrently before atomic integration"
             )
-        merged = _run_git(
-            ["merge", "--ff-only", "--no-edit", integration_commit],
-            cwd=repo_root,
-            timeout=30,
-        )
+        if handle.external_work_repo:
+            # Create only this task ref, atomically refusing an existing branch.
+            # Never check it out or move the operator's base branch/index.
+            merged = _run_git(
+                ["update-ref", f"refs/heads/{landing_branch}", integration_commit,
+                 "0" * len(integration_commit)],
+                cwd=repo_root,
+            )
+        else:
+            merged = _run_git(
+                ["merge", "--ff-only", "--no-edit", integration_commit],
+                cwd=repo_root,
+                timeout=30,
+            )
         if merged.returncode != 0:
             target_after_failure = _resolve_commit(
                 repo_root, f"refs/heads/{target_branch}"
@@ -2050,7 +2159,7 @@ def integrate_worktree_commits(
                 f"atomic integration failed before the branch commit point: "
                 f"{merged.stderr.strip()}"
             )
-        target_after = _resolve_commit(repo_root, f"refs/heads/{target_branch}")
+        target_after = _resolve_commit(repo_root, f"refs/heads/{landing_branch}")
         if target_after != integration_commit:
             raise WorktreeIsolationError("integration did not land the expected commit")
         return WorktreeIntegrationReceipt(
@@ -2067,6 +2176,7 @@ def integrate_worktree_commits(
             uncommitted_excluded_paths=uncommitted_excluded_paths,
             deleted_paths=deleted_paths,
             authorized_delete_paths=authorized_delete_strings,
+            target_branch=landing_branch,
         )
     finally:
         fcntl.flock(lock_descriptor, fcntl.LOCK_UN)

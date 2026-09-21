@@ -185,6 +185,7 @@
     "tools/coverage-ledger/campaigns.tsv",
     "tools/export/identifier-denylist.txt",
     "tools/export/target_scan.py",
+    "tools/export/task-evidence/**",
     "tools/export/tests/test_*policy*.py",
     "tools/export/tests/test_projector.py",
     "tools/export/tests/test_target_scan.py",

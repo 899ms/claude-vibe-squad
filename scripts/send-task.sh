@@ -12,6 +12,8 @@
 #   WRITE_SCOPE="path/a, path/b"  — extra writable paths, appended to the response
 #     artifact. Without this the wrapper could only ever author read-only packets,
 #     so any packet asking for code changes silently could not apply them.
+#   WORK_REPO=/absolute/main/checkout — optional external work repository.
+#     Unset emits no field and retains squad-repository dispatch behavior.
 #
 #   REVIEW_MODEL=codex|gpt-codex|claude|gemini|grok|kimi — alternate reviewer for
 #     non-empty REVIEW_TRIGGERS. Defaults to the mapped reviewer; if that reviewer
@@ -147,6 +149,7 @@ if ! python3 -X utf8 - \
     SPECIALIST "${SPECIALIST}" TO_MODEL "${TO_MODEL}" \
     MODEL_OVERRIDE_REASON "${MODEL_OVERRIDE_REASON-}" \
     WRITE_SCOPE "${WRITE_SCOPE-}" \
+    WORK_REPO "${WORK_REPO-}" \
     AUTHORIZED_DELETE_PATHS "${AUTHORIZED_DELETE_PATHS-}" \
     REVIEW_TRIGGERS "${REVIEW_TRIGGERS-}" <<'PYEOF'
 import sys
@@ -281,6 +284,10 @@ DELETE_PATHS_LINE="authorized_delete_paths: [${AUTHORIZED_DELETE_PATHS:-}]"
 # Every generated packet carries the typed declaration. The hardened dispatcher
 # independently validates prepared packets, then projects only a real task target.
 REVIEWS_LINE="reviews: ${REVIEWS}"$'\n'
+WORK_REPO_LINE=""
+if [[ -n "${WORK_REPO:+x}" ]]; then
+    WORK_REPO_LINE="work_repo: ${WORK_REPO}"$'\n'
+fi
 
 TIMESTAMP="$(date +%Y-%m-%d-%H%M)"
 TASK_ID="TASK-${TIMESTAMP}-$(uuidgen | head -c 8 | tr '[:upper:]' '[:lower:]')"
@@ -303,7 +310,7 @@ created: $(date -u +%FT%TZ)
 deadline: none
 write_scope: [departments/coding/outbox/${TASK_ID}-response.md${WRITE_SCOPE:+, ${WRITE_SCOPE}}]
 ${DELETE_PATHS_LINE}
-${REVIEWS_LINE}read_context: []
+${REVIEWS_LINE}${WORK_REPO_LINE}read_context: []
 return_artifact: departments/coding/outbox/${TASK_ID}-response.md
 compatibility_namespace: coding
 specialist: ${SPECIALIST}
